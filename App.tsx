@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession } from './types';
 import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from './constants';
@@ -556,19 +555,76 @@ const FooterEditor = ({ data, onChange }: { data: FooterData, onChange: (d: Foot
 // --- Main App ---
 
 export default function App() {
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [tables, setTables] = useState<Table[]>([]);
-  const [footerData, setFooterData] = useState<FooterData>(DEFAULT_FOOTER);
+  // --- Lazy Initialization for State ---
+  const [items, setItems] = useState<MenuItem[]>(() => {
+    try {
+        const saved = localStorage.getItem('sg_menu');
+        return saved ? JSON.parse(saved) : INITIAL_MENU;
+    } catch {
+        return INITIAL_MENU;
+    }
+  });
+
+  const [categories, setCategories] = useState<string[]>(() => {
+    try {
+        const saved = localStorage.getItem('sg_categories');
+        return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    } catch {
+        return INITIAL_CATEGORIES;
+    }
+  });
+
+  const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>(() => {
+    try {
+        const saved = localStorage.getItem('sg_daily_records');
+        return saved ? JSON.parse(saved) : [];
+    } catch {
+        return [];
+    }
+  });
+
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    try {
+        const saved = localStorage.getItem('sg_expenses');
+        return saved ? JSON.parse(saved) : [];
+    } catch {
+        return [];
+    }
+  });
+
+  const [cashierHistory, setCashierHistory] = useState<CashierSession[]>(() => {
+    try {
+        const saved = localStorage.getItem('sg_cashier_history');
+        return saved ? JSON.parse(saved) : [];
+    } catch {
+        return [];
+    }
+  });
+
+  const [tables, setTables] = useState<Table[]>(() => {
+    try {
+        const saved = localStorage.getItem('sg_tables');
+        return saved ? JSON.parse(saved) : Array.from({ length: TOTAL_TABLES }, (_, i) => ({ id: i + 1, isActive: false, items: [] }));
+    } catch {
+        return Array.from({ length: TOTAL_TABLES }, (_, i) => ({ id: i + 1, isActive: false, items: [] }));
+    }
+  });
+
+  const [footerData, setFooterData] = useState<FooterData>(() => {
+      try {
+          const saved = localStorage.getItem('sg_footer');
+          return saved ? JSON.parse(saved) : DEFAULT_FOOTER;
+      } catch {
+          return DEFAULT_FOOTER;
+      }
+  });
+
   const [mode, setMode] = useState<AppMode>(AppMode.VIEW);
   const [adminTab, setAdminTab] = useState<'menu' | 'categories' | 'stock' | 'footer' | 'caixa'>('menu');
   const [activeCategory, setActiveCategory] = useState<string>('Todos');
   const [isLoading, setIsLoading] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   
-  const [cashierHistory, setCashierHistory] = useState<CashierSession[]>([]);
   const [isOpeningCashier, setIsOpeningCashier] = useState(false);
   const [isClosingCashier, setIsClosingCashier] = useState(false);
 
@@ -583,35 +639,11 @@ export default function App() {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [namingTableId, setNamingTableId] = useState<number | null>(null);
 
+  // --- Persistence Effect (Save Only) ---
   useEffect(() => {
     try {
-        const savedMenu = localStorage.getItem('sg_menu');
-        const savedCats = localStorage.getItem('sg_categories');
-        const savedDaily = localStorage.getItem('sg_daily_records');
-        const savedExpenses = localStorage.getItem('sg_expenses');
-        const savedCashier = localStorage.getItem('sg_cashier_history');
-        const savedTables = localStorage.getItem('sg_tables');
-        const savedFooter = localStorage.getItem('sg_footer');
-
-        if (savedMenu) setItems(JSON.parse(savedMenu)); else setItems(INITIAL_MENU);
-        if (savedCats) setCategories(JSON.parse(savedCats)); else setCategories(INITIAL_CATEGORIES);
-        if (savedDaily) setDailyRecords(JSON.parse(savedDaily));
-        if (savedExpenses) setExpenses(JSON.parse(savedExpenses));
-        if (savedCashier) setCashierHistory(JSON.parse(savedCashier));
-        if (savedFooter) setFooterData(JSON.parse(savedFooter));
-        if (savedTables) setTables(JSON.parse(savedTables)); else setTables(Array.from({ length: TOTAL_TABLES }, (_, i) => ({ id: i + 1, isActive: false, items: [] })));
-    } catch (error) {
-        console.error("Failed to load data from localStorage:", error);
-        // Fallback to initial state if localStorage is corrupt
-        setItems(INITIAL_MENU);
-        setCategories(INITIAL_CATEGORIES);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-        if (items.length) localStorage.setItem('sg_menu', JSON.stringify(items));
-        if (categories.length) localStorage.setItem('sg_categories', JSON.stringify(categories));
+        localStorage.setItem('sg_menu', JSON.stringify(items));
+        localStorage.setItem('sg_categories', JSON.stringify(categories));
         localStorage.setItem('sg_daily_records', JSON.stringify(dailyRecords));
         localStorage.setItem('sg_expenses', JSON.stringify(expenses));
         localStorage.setItem('sg_cashier_history', JSON.stringify(cashierHistory));
