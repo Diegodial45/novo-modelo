@@ -32,6 +32,11 @@ interface ExpenseModalProps {
   onClose: () => void;
 }
 
+interface AddOperationModalProps {
+  onSave: (data: { type: 'ENTRADA' | 'SAIDA'; description: string; amount: number; method: string }) => void;
+  onClose: () => void;
+}
+
 interface PaymentModalProps {
   title: string;
   total: number;
@@ -105,6 +110,8 @@ interface AdminPanelProps {
     setFooterData: (data: FooterData) => void;
     onOpenCashierClick: () => void;
     onCloseCashierClick: () => void;
+    onDeleteOperation: (id: string, type: 'ENTRADA' | 'SAIDA') => void;
+    onOpenAddOperation: () => void;
 }
 
 
@@ -152,6 +159,44 @@ const OpenCashierModal = ({ onConfirm, onClose }: OpenCashierModalProps) => {
           <button onClick={onClose} className="flex-grow py-5 rounded-2xl bg-white/5 text-red-200 font-black uppercase text-[11px]">Cancelar</button>
           <button onClick={() => onConfirm(parseFloat(balance) || 0)} className="flex-grow py-5 rounded-2xl bg-emerald-600 text-white font-black uppercase text-[11px] hover:scale-105 transition-transform">Confirmar</button>
         </footer>
+      </div>
+    </div>
+  );
+};
+
+const AddOperationModal = ({ onSave, onClose }: AddOperationModalProps) => {
+  const [type, setType] = useState<'ENTRADA' | 'SAIDA'>('ENTRADA');
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("Dinheiro");
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
+      <div className="relative bg-red-900 border-2 border-gold/40 w-full max-w-md rounded-[40px] p-8 animate-zoom-in">
+        <h3 className="text-2xl font-bold text-white serif mb-6">Lançamento Manual</h3>
+        
+        <div className="flex gap-2 mb-4">
+            <button onClick={() => setType('ENTRADA')} className={`flex-grow py-3 rounded-xl font-bold text-xs uppercase ${type === 'ENTRADA' ? 'bg-emerald-600 text-white' : 'bg-red-950 text-red-400 border border-white/5'}`}>Entrada</button>
+            <button onClick={() => setType('SAIDA')} className={`flex-grow py-3 rounded-xl font-bold text-xs uppercase ${type === 'SAIDA' ? 'bg-red-600 text-white' : 'bg-red-950 text-red-400 border border-white/5'}`}>Saída</button>
+        </div>
+
+        <div className="space-y-4">
+          <input placeholder="Descrição do Lançamento" value={desc} onChange={e => setDesc(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
+          <input type="number" placeholder="Valor R$" value={amount} onChange={e => setAmount(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
+          
+          <div>
+              <label className="text-[10px] text-red-300 font-black uppercase mb-2 block">Forma de Pagamento</label>
+              <select value={method} onChange={e => setMethod(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white">
+                  {['Dinheiro', 'PIX', 'Cartão'].map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+          </div>
+        </div>
+
+        <div className="flex gap-4 mt-8">
+          <button onClick={onClose} className="flex-grow py-4 rounded-xl bg-white/5 text-red-200 font-bold">Cancelar</button>
+          <button onClick={() => onSave({ type, description: desc, amount: parseFloat(amount) || 0, method })} className="flex-grow py-4 rounded-xl bg-gold text-black font-bold">Confirmar</button>
+        </div>
       </div>
     </div>
   );
@@ -698,7 +743,7 @@ const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, on
     );
 };
 
-const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick }: AdminPanelProps) => {
+const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation }: AdminPanelProps) => {
     
     // Logic for Cashier Timeline/Extraction
     const cashierStats = useMemo(() => {
@@ -901,7 +946,12 @@ const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAd
                                 
                                 {/* Histórico Detalhado */}
                                 <div className="space-y-4">
-                                     <h4 className="text-xl font-bold serif text-white px-2">Extrato da Sessão</h4>
+                                     <div className="flex justify-between items-end px-2">
+                                        <h4 className="text-xl font-bold serif text-white">Extrato da Sessão</h4>
+                                        <button onClick={onOpenAddOperation} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase hover:bg-white/10 transition-all flex items-center gap-2">
+                                            <span>+</span> Adicionar Lançamento
+                                        </button>
+                                     </div>
                                      <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-left">
@@ -912,6 +962,7 @@ const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAd
                                                         <th className="px-6 py-4">Detalhes</th>
                                                         <th className="px-6 py-4">Método</th>
                                                         <th className="px-6 py-4 text-right">Valor</th>
+                                                        <th className="px-6 py-4 text-center">Ações</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-white/5">
@@ -932,10 +983,24 @@ const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAd
                                                             <td className={`px-6 py-4 text-right font-bold font-mono ${op.type === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
                                                                 {op.type === 'SAIDA' ? '-' : '+'} R$ {op.amount.toFixed(2)}
                                                             </td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                {op.category !== 'Abertura' && (
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            if(confirm('Tem certeza que deseja excluir este registro?')) {
+                                                                                onDeleteOperation(op.id, op.type as 'ENTRADA' | 'SAIDA');
+                                                                            }
+                                                                        }} 
+                                                                        className="w-8 h-8 rounded-full bg-red-950 text-red-400 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center text-xs"
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                )}
+                                                            </td>
                                                         </tr>
                                                     ))}
                                                     {cashierOperations.length === 0 && (
-                                                        <tr><td colSpan={5} className="text-center py-12 text-red-400 italic">Nenhuma movimentação registrada nesta sessão.</td></tr>
+                                                        <tr><td colSpan={6} className="text-center py-12 text-red-400 italic">Nenhuma movimentação registrada nesta sessão.</td></tr>
                                                     )}
                                                 </tbody>
                                             </table>
@@ -967,6 +1032,7 @@ export default function App() {
   const [isClosingCashier, setIsClosingCashier] = useState(false);
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState(false);
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+  const [isAddOperationOpen, setIsAddOperationOpen] = useState(false);
   
   // Table Interaction states
   const [activeTableId, setActiveTableId] = useState<number | null>(null);
@@ -1063,6 +1129,50 @@ export default function App() {
       await dbService.addExpense(newExp);
       setExpenses(prev => [newExp, ...prev]);
       setIsExpenseOpen(false);
+  };
+
+  const handleManualOperation = async (data: { type: 'ENTRADA' | 'SAIDA'; description: string; amount: number; method: string }) => {
+      if(!currentSession) return;
+
+      if(data.type === 'SAIDA') {
+          // Add as expense
+          const newExp: Expense = {
+              id: crypto.randomUUID(),
+              description: data.description,
+              amount: data.amount,
+              category: "Geral",
+              timestamp: Date.now(),
+              sessionId: currentSession.id
+          };
+          await dbService.addExpense(newExp);
+          setExpenses(prev => [newExp, ...prev]);
+      } else {
+          // Add as daily record (Manual Sale)
+          const record: DailyRecord = {
+              id: crypto.randomUUID(),
+              tableId: 0,
+              customerName: data.description,
+              openedAt: Date.now(),
+              closedAt: Date.now(),
+              items: [], // Empty items for manual entry
+              total: data.amount,
+              paymentMethod: data.method,
+              sessionId: currentSession.id
+          };
+          await dbService.addDailyRecord(record);
+          setDailyRecords(prev => [record, ...prev]);
+      }
+      setIsAddOperationOpen(false);
+  };
+
+  const handleDeleteOperation = async (id: string, type: 'ENTRADA' | 'SAIDA') => {
+      if(type === 'SAIDA') {
+          await dbService.deleteExpense(id);
+          setExpenses(prev => prev.filter(e => e.id !== id));
+      } else {
+          await dbService.deleteDailyRecord(id);
+          setDailyRecords(prev => prev.filter(r => r.id !== id));
+      }
   };
 
   const handleUpdateTable = async (updatedTable: Table) => {
@@ -1248,6 +1358,8 @@ export default function App() {
                setFooterData={handleUpdateFooter}
                onOpenCashierClick={() => setIsOpeningCashier(true)}
                onCloseCashierClick={() => setIsClosingCashier(true)}
+               onDeleteOperation={handleDeleteOperation}
+               onOpenAddOperation={() => setIsAddOperationOpen(true)}
              />
           )}
        </main>
@@ -1257,6 +1369,7 @@ export default function App() {
        {isClosingCashier && currentSession && <CloseCashierModal session={currentSession} records={dailyRecords} expenses={expenses} onConfirm={handleCloseCashier} onClose={() => setIsClosingCashier(false)} />}
        {isQuickSaleOpen && <QuickSaleModal items={items} onClose={() => setIsQuickSaleOpen(false)} onFinishSale={handleQuickSale} />}
        {isExpenseOpen && <ExpenseModal onSave={handleExpense} onClose={() => setIsExpenseOpen(false)} />}
+       {isAddOperationOpen && <AddOperationModal onSave={handleManualOperation} onClose={() => setIsAddOperationOpen(false)} />}
        
        {paymentTable && (
          <PaymentModal 

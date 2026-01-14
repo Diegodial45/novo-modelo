@@ -162,6 +162,10 @@ export const dbService = {
     });
   },
 
+  async deleteDailyRecord(id: string) {
+    await supabase.from('daily_records').delete().eq('id', id);
+  },
+
   async addExpense(expense: Expense) {
     await supabase.from('expenses').insert({
       id: expense.id,
@@ -171,6 +175,10 @@ export const dbService = {
       timestamp: expense.timestamp,
       session_id: expense.sessionId
     });
+  },
+
+  async deleteExpense(id: string) {
+    await supabase.from('expenses').delete().eq('id', id);
   },
 
   // --- Mesas (Tempo Real / Persistência) ---
