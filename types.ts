@@ -74,3 +74,11 @@ export interface CashierSession {
   expectedBalance?: number;
   status: 'OPEN' | 'CLOSED';
 }
+
+export interface FooterData {
+  brandName: string;
+  description: string;
+  location: string;
+  hours: string;
+  copyright: string;
+}

@@ -1,17 +1,11 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession } from './types';
+import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession, FooterData } from './types';
 import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from './constants';
 import { enhanceDescription } from './services/geminiService';
+import { dbService } from './services/db';
 
 // --- Type Definitions for Component Props ---
-
-interface FooterData {
-  brandName: string;
-  description: string;
-  location: string;
-  hours: string;
-  copyright: string;
-}
 
 interface OpenCashierModalProps {
   onConfirm: (balance: number) => void;
@@ -97,15 +91,20 @@ interface AdminPanelProps {
     items: MenuItem[];
     categories: string[];
     currentSession: CashierSession | undefined;
+    dailyRecords: DailyRecord[];
+    expenses: Expense[];
     adminTab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa';
     setAdminTab: (tab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa') => void;
     setEditingItemId: (id: string | null) => void;
-    setItems: React.Dispatch<React.SetStateAction<MenuItem[]>>;
-    setCategories: React.Dispatch<React.SetStateAction<string[]>>;
+    handleUpdateItem: (item: MenuItem) => void;
+    handleAddCategory: (cat: string) => void;
+    handleRemoveCategory: (cat: string) => void;
+    handleUpdateStock: (id: string, stock: number) => void;
+    handleAddNewItem: () => void;
     footerData: FooterData;
-    setFooterData: React.Dispatch<React.SetStateAction<FooterData>>;
-    setIsOpeningCashier: (isOpen: boolean) => void;
-    setIsClosingCashier: (isOpen: boolean) => void;
+    setFooterData: (data: FooterData) => void;
+    onOpenCashierClick: () => void;
+    onCloseCashierClick: () => void;
 }
 
 
@@ -126,7 +125,7 @@ const LoadingOverlay = () => (
   <div className="fixed inset-0 bg-red-950/80 backdrop-blur-sm z-[200] flex items-center justify-center">
     <div className="text-center">
       <div className="w-16 h-16 border-4 border-gold border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-      <div className="text-gold font-bold tracking-widest uppercase text-xs">Processando...</div>
+      <div className="text-gold font-bold tracking-widest uppercase text-xs">Sincronizando...</div>
     </div>
   </div>
 );
@@ -161,46 +160,118 @@ const OpenCashierModal = ({ onConfirm, onClose }: OpenCashierModalProps) => {
 const CloseCashierModal = ({ session, records, expenses, onConfirm, onClose }: CloseCashierModalProps) => {
   const sessionRecords = records.filter(r => r.sessionId === session.id);
   const sessionExpenses = expenses.filter(e => e.sessionId === session.id);
+  
   const totals = useMemo(() => {
-    let cash = 0, pix = 0, card = 0, exp = 0;
+    let cashSales = 0, digitalSales = 0, exp = 0;
     sessionRecords.forEach(r => {
-      if (r.paymentMethod === 'Dinheiro') cash += r.total;
-      else if (r.paymentMethod === 'PIX') pix += r.total;
-      else card += r.total;
+      if (r.paymentMethod === 'Dinheiro') cashSales += r.total;
+      else digitalSales += r.total;
     });
     sessionExpenses.forEach(e => exp += e.amount);
-    return { cash, pix, card, exp, expected: session.openingBalance + cash - exp };
+    
+    // Theoretical cash in drawer: Opening Balance + Cash Sales - Expenses
+    // (Assuming expenses are paid with cash from drawer)
+    const expectedCashInDrawer = session.openingBalance + cashSales - exp;
+    
+    return { cashSales, digitalSales, exp, expectedCashInDrawer };
   }, [sessionRecords, sessionExpenses, session]);
 
-  const [actual, setActual] = useState(totals.expected.toString());
+  const [actual, setActual] = useState(totals.expectedCashInDrawer.toString());
+  const actualNum = parseFloat(actual) || 0;
+  const difference = actualNum - totals.expectedCashInDrawer;
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
-      <div className="relative bg-red-900 border-2 border-red-500/40 w-full max-w-2xl rounded-[50px] overflow-hidden shadow-2xl animate-zoom-in">
-        <header className="p-10 border-b border-white/10 bg-red-800/20 text-center">
-          <h3 className="text-3xl font-bold text-white serif">Fechamento de Caixa</h3>
+      <div className="relative bg-red-900 border-2 border-red-500/40 w-full max-w-3xl rounded-[50px] overflow-hidden shadow-2xl animate-zoom-in flex flex-col max-h-[90vh]">
+        <header className="p-8 border-b border-white/10 bg-red-800/20 flex justify-between items-center">
+          <h3 className="text-3xl font-bold text-white serif">Conferência de Fechamento</h3>
+          <div className="text-right">
+             <div className="text-[10px] text-red-300 uppercase font-bold">Aberto em</div>
+             <div className="text-sm font-mono">{new Date(session.openedAt).toLocaleTimeString()}</div>
+          </div>
         </header>
-        <div className="p-10 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-red-800 p-4 rounded-2xl"><div className="text-red-400 text-[10px] uppercase font-bold">Inicial</div><div className="text-xl font-bold">R$ {session.openingBalance.toFixed(2)}</div></div>
-            <div className="bg-red-800 p-4 rounded-2xl"><div className="text-red-400 text-[10px] uppercase font-bold">Dinheiro</div><div className="text-xl font-bold">R$ {totals.cash.toFixed(2)}</div></div>
-            <div className="bg-red-800 p-4 rounded-2xl"><div className="text-red-400 text-[10px] uppercase font-bold">PIX/Card</div><div className="text-xl font-bold">R$ {(totals.pix + totals.card).toFixed(2)}</div></div>
-            <div className="bg-red-800 p-4 rounded-2xl"><div className="text-red-400 text-[10px] uppercase font-bold">Despesas</div><div className="text-xl font-bold text-red-400">R$ {totals.exp.toFixed(2)}</div></div>
-          </div>
-          <div className="text-center py-6 border-y border-white/5">
-            <div className="text-gold text-[11px] uppercase font-black mb-1">Saldo Esperado</div>
-            <div className="text-5xl font-bold text-white serif">R$ {totals.expected.toFixed(2)}</div>
-          </div>
-          <div className="text-center">
-            <label className="text-red-200 text-[11px] font-black uppercase mb-2 block">Valor Real na Gaveta</label>
-            <input type="number" value={actual} onChange={e => setActual(e.target.value)} className="w-full bg-red-950 border-2 border-white/10 rounded-3xl py-6 text-white text-3xl font-mono text-center outline-none focus:border-red-500/50" />
-          </div>
+        
+        <div className="p-8 overflow-y-auto custom-scrollbar space-y-8">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-4">
+                <div className="bg-red-800/50 p-4 rounded-2xl border border-white/5">
+                    <div className="text-red-400 text-[9px] uppercase font-bold mb-1">Fundo Inicial</div>
+                    <div className="text-xl font-bold text-white">R$ {session.openingBalance.toFixed(2)}</div>
+                </div>
+                <div className="bg-emerald-900/30 p-4 rounded-2xl border border-emerald-500/20">
+                    <div className="text-emerald-400 text-[9px] uppercase font-bold mb-1">Vendas (Dinheiro)</div>
+                    <div className="text-xl font-bold text-emerald-100">+ R$ {totals.cashSales.toFixed(2)}</div>
+                </div>
+                <div className="bg-red-950/50 p-4 rounded-2xl border border-red-500/20">
+                    <div className="text-red-400 text-[9px] uppercase font-bold mb-1">Saídas/Despesas</div>
+                    <div className="text-xl font-bold text-red-300">- R$ {totals.exp.toFixed(2)}</div>
+                </div>
+            </div>
+
+            {/* Calculation */}
+            <div className="bg-red-950 rounded-3xl p-6 border border-white/10">
+                 <div className="flex justify-between items-center mb-6">
+                    <div className="text-left">
+                        <div className="text-gold text-[10px] uppercase font-black tracking-widest mb-1">Saldo Teórico em Dinheiro</div>
+                        <div className="text-4xl font-bold text-white serif">R$ {totals.expectedCashInDrawer.toFixed(2)}</div>
+                        <div className="text-[9px] text-red-400 mt-1">Conta: Inicial + Vendas Dinheiro - Despesas</div>
+                    </div>
+                 </div>
+                 
+                 <div className="relative">
+                    <label className="text-red-200 text-[10px] font-black uppercase mb-2 block tracking-widest">Contagem Física da Gaveta (Informe o valor)</label>
+                    <input 
+                        type="number" 
+                        value={actual} 
+                        onChange={e => setActual(e.target.value)} 
+                        className="w-full bg-red-900 border-2 border-white/20 rounded-2xl py-5 px-6 text-white text-3xl font-mono outline-none focus:border-gold transition-colors" 
+                        placeholder="0.00"
+                    />
+                 </div>
+            </div>
+
+            {/* Result Difference */}
+            <div className={`p-4 rounded-2xl border flex justify-between items-center ${difference === 0 ? 'bg-white/5 border-white/10' : difference > 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                <span className="text-[10px] font-black uppercase tracking-widest">Resultado (Quebra de Caixa)</span>
+                <span className={`text-xl font-bold font-mono ${difference === 0 ? 'text-white' : difference > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {difference > 0 ? '+' : ''}{difference.toFixed(2)}
+                </span>
+            </div>
+            
+            <div className="text-center text-[10px] text-red-300">
+                * Vendas digitais (PIX/Cartão): <span className="text-white font-bold">R$ {totals.digitalSales.toFixed(2)}</span> (Não afetam a contagem física)
+            </div>
         </div>
-        <footer className="p-10 flex gap-4 bg-red-800/50">
-          <button onClick={onClose} className="flex-grow py-5 rounded-2xl bg-white/5 text-red-200 font-black uppercase text-[11px]">Voltar</button>
-          <button onClick={() => onConfirm(parseFloat(actual) || 0)} className="flex-grow py-5 rounded-2xl bg-red-600 text-white font-black uppercase text-[11px]">Finalizar</button>
+
+        <footer className="p-8 flex gap-4 bg-red-800/50 border-t border-white/10 mt-auto">
+          <button onClick={onClose} className="flex-grow py-5 rounded-2xl bg-white/5 text-red-200 font-black uppercase text-[10px] hover:bg-white/10 transition-colors">Voltar</button>
+          <button onClick={() => onConfirm(actualNum)} className="flex-grow py-5 rounded-2xl bg-gold text-black font-black uppercase text-[10px] hover:scale-[1.02] active:scale-95 transition-all shadow-lg">Confirmar e Fechar</button>
         </footer>
+      </div>
+    </div>
+  );
+};
+
+const ItemSelectorModal = ({ items, onAddItem, onClose }: ItemSelectorModalProps) => {
+  const [search, setSearch] = useState("");
+  const filtered = items.filter(i => i.isAvailable && i.name.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-red-950/98" onClick={onClose}></div>
+      <div className="relative bg-red-900 border border-gold/20 w-full max-w-4xl h-[80vh] rounded-[50px] overflow-hidden flex flex-col">
+        <header className="p-8 border-b border-white/10 bg-red-800/50">
+          <input placeholder="Procurar prato..." value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-red-950 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
+        </header>
+        <div className="flex-grow overflow-y-auto p-8 grid grid-cols-2 md:grid-cols-3 gap-6 custom-scrollbar">
+          {filtered.map(item => (
+            <button key={item.id} onClick={() => onAddItem(item)} className="bg-red-800/50 p-6 rounded-3xl border border-white/5 hover:border-gold transition-all text-left">
+              <span className="font-bold text-white mb-1 truncate serif block">{item.name}</span>
+              <span className="text-gold font-black text-sm block">R$ {item.price.toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+        <footer className="p-6 border-t border-white/10 text-center"><button onClick={onClose} className="text-gold font-black uppercase text-[10px]">Fechar</button></footer>
       </div>
     </div>
   );
@@ -209,6 +280,7 @@ const CloseCashierModal = ({ session, records, expenses, onConfirm, onClose }: C
 const QuickSaleModal = ({ items, initialItem, onClose, onFinishSale }: QuickSaleModalProps) => {
   const [cart, setCart] = useState<TableItem[]>(initialItem ? [{ menuItemId: initialItem.id, name: initialItem.name, price: initialItem.price, quantity: 1 }] : []);
   const [search, setSearch] = useState("");
+  const [isSelectorOpen, setIsSelectorOpen] = useState(false); // New state for selector
   const total = useMemo(() => cart.reduce((s, i) => s + (i.price * i.quantity), 0), [cart]);
 
   const addItem = (item: MenuItem) => {
@@ -236,6 +308,8 @@ const QuickSaleModal = ({ items, initialItem, onClose, onFinishSale }: QuickSale
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-red-950/98" onClick={onClose}></div>
       <div className="relative bg-red-900 border border-gold/20 w-full max-w-6xl h-[85vh] rounded-[60px] overflow-hidden flex flex-col md:flex-row shadow-[0_0_100px_rgba(0,0,0,1)] animate-zoom-in">
+        
+        {/* Left Side: Menu Grid */}
         <div className="flex-grow p-8 flex flex-col border-r border-white/5 overflow-hidden">
           <header className="mb-8">
             <h3 className="text-3xl font-bold serif mb-4">Venda Rápida</h3>
@@ -243,15 +317,28 @@ const QuickSaleModal = ({ items, initialItem, onClose, onFinishSale }: QuickSale
           </header>
           <div className="flex-grow overflow-y-auto grid grid-cols-2 lg:grid-cols-3 gap-4 custom-scrollbar pr-4">
             {filtered.map((item) => (
-              <button key={item.id} onClick={() => addItem(item)} className="p-4 bg-red-800 rounded-3xl border border-white/5 hover:border-gold transition-all text-left flex flex-col h-full">
+              <button key={item.id} onClick={() => addItem(item)} className="p-4 bg-red-800 rounded-3xl border border-white/5 hover:border-gold transition-all text-left flex flex-col h-full group">
                 <span className="text-white font-bold mb-1 serif line-clamp-1 block">{item.name}</span>
-                <span className="text-gold font-black text-sm block">R$ {item.price.toFixed(2)}</span>
+                <div className="flex justify-between items-center w-full mt-auto">
+                     <span className="text-gold font-black text-sm block">R$ {item.price.toFixed(2)}</span>
+                     <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-white text-xs group-hover:bg-gold group-hover:text-black transition-colors">+</div>
+                </div>
               </button>
             ))}
           </div>
         </div>
+
+        {/* Right Side: Cart */}
         <div className="w-full md:w-[400px] bg-red-950/40 flex flex-col">
-          <header className="p-8 border-b border-white/5"><h4 className="text-xl font-bold serif">Carrinho</h4></header>
+          <header className="p-8 border-b border-white/5 flex justify-between items-center">
+              <h4 className="text-xl font-bold serif">Carrinho</h4>
+              <button 
+                onClick={() => setIsSelectorOpen(true)} 
+                className="bg-gold text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform shadow-lg"
+              >
+                  + Adicionar
+              </button>
+          </header>
           <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar">
             {cart.map(i => (
               <div key={i.menuItemId} className="flex justify-between items-center bg-red-800 p-4 rounded-2xl">
@@ -275,6 +362,17 @@ const QuickSaleModal = ({ items, initialItem, onClose, onFinishSale }: QuickSale
             <button onClick={onClose} className="w-full pt-4 text-red-400 text-[10px] uppercase font-black">Cancelar</button>
           </footer>
         </div>
+
+        {/* Nested Selector Modal */}
+        {isSelectorOpen && (
+            <div className="fixed inset-0 z-[200]">
+                <ItemSelectorModal 
+                    items={items} 
+                    onAddItem={(item) => { addItem(item); setIsSelectorOpen(false); }} 
+                    onClose={() => setIsSelectorOpen(false)} 
+                />
+            </div>
+        )}
       </div>
     </div>
   );
@@ -338,573 +436,866 @@ const CustomerNameModal = ({ initialName, onSave, onClose }: CustomerNameModalPr
   );
 };
 
-const ItemSelectorModal = ({ items, onAddItem, onClose }: ItemSelectorModalProps) => {
-  const [search, setSearch] = useState("");
-  const filtered = items.filter(i => i.isAvailable && i.name.toLowerCase().includes(search.toLowerCase()));
-  return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 animate-fade-in">
-      <div className="absolute inset-0 bg-red-950/98" onClick={onClose}></div>
-      <div className="relative bg-red-900 border border-gold/20 w-full max-w-4xl h-[80vh] rounded-[50px] overflow-hidden flex flex-col">
-        <header className="p-8 border-b border-white/10 bg-red-800/50">
-          <input placeholder="Procurar prato..." value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-red-950 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
-        </header>
-        <div className="flex-grow overflow-y-auto p-8 grid grid-cols-2 md:grid-cols-3 gap-6 custom-scrollbar">
-          {filtered.map(item => (
-            <button key={item.id} onClick={() => onAddItem(item)} className="bg-red-800/50 p-6 rounded-3xl border border-white/5 hover:border-gold transition-all text-left">
-              <span className="font-bold text-white mb-1 truncate serif block">{item.name}</span>
-              <span className="text-gold font-black text-sm block">R$ {item.price.toFixed(2)}</span>
-            </button>
-          ))}
-        </div>
-        <footer className="p-6 border-t border-white/10 text-center"><button onClick={onClose} className="text-gold font-black uppercase text-[10px]">Fechar</button></footer>
-      </div>
-    </div>
-  );
-};
-
 const EditItemModal = ({ item, categories, onSave, onClose }: EditItemModalProps) => {
   const [data, setData] = useState<MenuItem>({ ...item });
   const [isEnhancing, setIsEnhancing] = useState(false);
+  
   const handleEnhance = async () => {
     setIsEnhancing(true);
     const enhanced = await enhanceDescription(data.name, data.description);
     setData(prev => ({ ...prev, description: enhanced }));
     setIsEnhancing(false);
   };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+           setData(prev => ({ ...prev, imageUrl: reader.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
       <div className="relative bg-red-900 border-2 border-gold/30 w-full max-w-2xl rounded-[50px] overflow-hidden flex flex-col shadow-2xl">
         <header className="p-10 border-b border-white/10 bg-gold/5 text-center"><h3 className="text-3xl font-bold text-white serif">Editar Prato</h3></header>
         <div className="p-10 space-y-6 overflow-y-auto max-h-[70vh] custom-scrollbar">
-          <input value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Nome" />
+          <input value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder-red-400/50" placeholder="Nome do Prato" />
+          
           <div className="grid grid-cols-2 gap-4">
             <input type="number" value={data.price} onChange={e => setData({...data, price: parseFloat(e.target.value) || 0})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Preço" />
             <select value={data.category} onChange={e => setData({...data, category: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white">
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          
           <div className="relative">
-            <textarea value={data.description} onChange={e => setData({...data, description: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white h-32 resize-none" placeholder="Descrição" />
-            <button onClick={handleEnhance} disabled={isEnhancing} className="mt-2 text-emerald-400 text-[10px] font-black uppercase flex items-center gap-2">{isEnhancing ? '✨ Processando...' : '✨ Refinar com IA'}</button>
+            <textarea value={data.description} onChange={e => setData({...data, description: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white h-32 resize-none placeholder-red-400/50" placeholder="Descrição detalhada..." />
+            <button onClick={handleEnhance} disabled={isEnhancing} className="absolute bottom-4 right-4 text-emerald-400 text-[10px] font-black uppercase flex items-center gap-2 bg-emerald-900/50 px-3 py-1 rounded-full border border-emerald-500/30 hover:bg-emerald-900 transition-colors disabled:opacity-50">
+                {isEnhancing ? '✨ Processando...' : '✨ Refinar com IA'}
+            </button>
           </div>
-          <input value={data.imageUrl} onChange={e => setData({...data, imageUrl: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="URL da Imagem" />
+          
+          <div className="space-y-3 p-6 bg-red-800/30 rounded-3xl border border-white/5">
+              <label className="text-[10px] font-black uppercase text-gold tracking-widest block mb-2">Imagem do Prato</label>
+              
+              {data.imageUrl && (
+                  <div className="w-full h-48 rounded-2xl overflow-hidden border border-white/10 relative group mb-4">
+                      <img src={data.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => setData({...data, imageUrl: ''})}
+                        className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-bold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      >✕</button>
+                  </div>
+              )}
+
+              <div className="flex gap-4 items-center">
+                  <label className="flex-grow cursor-pointer bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white hover:bg-red-700 hover:border-gold/50 transition-all flex items-center justify-center gap-3 shadow-lg">
+                      <span className="text-xl">📁</span>
+                      <div className="text-left">
+                          <span className="block text-sm font-bold text-white">Escolher Arquivo</span>
+                          <span className="block text-[10px] text-red-300 uppercase font-black">PNG, JPG, JPEG</span>
+                      </div>
+                      <input 
+                          type="file" 
+                          accept="image/png, image/jpeg, image/jpg" 
+                          onChange={handleImageUpload} 
+                          className="hidden" 
+                      />
+                  </label>
+              </div>
+              
+              <div className="text-center text-[10px] text-red-400 font-bold uppercase tracking-widest my-2">- OU -</div>
+              
+              <input 
+                value={data.imageUrl} 
+                onChange={e => setData({...data, imageUrl: e.target.value})} 
+                className="w-full bg-red-950/50 border border-white/10 rounded-2xl px-6 py-3 text-white text-xs placeholder-red-500/50" 
+                placeholder="Cole uma URL de imagem externa aqui..." 
+              />
+          </div>
         </div>
-        <footer className="p-10 bg-red-800/50 flex gap-4">
-          <button onClick={onClose} className="flex-grow py-5 bg-white/5 rounded-2xl text-red-400 font-bold uppercase">Cancelar</button>
-          <button onClick={() => onSave(data)} className="flex-grow py-5 bg-gold rounded-2xl text-black font-bold uppercase">Salvar</button>
+        <footer className="p-10 bg-red-800/50 flex gap-4 mt-auto border-t border-white/5">
+          <button onClick={onClose} className="flex-grow py-5 bg-white/5 rounded-2xl text-red-400 font-bold uppercase hover:bg-white/10 transition-colors">Cancelar</button>
+          <button onClick={() => onSave(data)} className="flex-grow py-5 bg-gold rounded-2xl text-black font-bold uppercase hover:scale-[1.02] active:scale-95 transition-all shadow-lg">Salvar Alterações</button>
         </footer>
       </div>
     </div>
   );
 };
 
-// --- Sub-Panels ---
+// --- Main Application Components ---
 
-const TransactionsSpreadsheet = ({ records, expenses }: { records: DailyRecord[], expenses: Expense[]}) => {
-  const combined = useMemo(() => {
-    const list = [
-      ...records.map(r => ({ ...r, type: 'VENDA' as const, desc: `${r.tableId === 0 ? 'Balcão' : 'Mesa ' + r.tableId}`, meth: r.paymentMethod, val: r.total, t: r.closedAt })),
-      ...expenses.map(e => ({ ...e, type: 'DESPESA' as const, desc: e.description, meth: '-', val: -e.amount, t: e.timestamp }))
-    ];
-    return list.sort((a, b) => b.t - a.t);
-  }, [records, expenses]);
-
+const Navbar = ({ mode, setMode, isCashierOpen, onToggleCashier, onOpenQuickSale, onOpenExpense }: NavbarProps) => {
   return (
-    <div className="animate-fade-in space-y-6">
-      <h2 className="text-4xl font-bold serif text-white">Lançamentos</h2>
-      <div className="bg-red-900 border border-white/10 rounded-[40px] overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-red-800 text-gold text-[10px] font-black uppercase tracking-widest">
-              <tr><th className="px-8 py-5 whitespace-nowrap">Data/Hora</th><th className="px-8 py-5 whitespace-nowrap">Tipo</th><th className="px-8 py-5 whitespace-nowrap">Descrição</th><th className="px-8 py-5 whitespace-nowrap">Pgto</th><th className="px-8 py-5 text-right whitespace-nowrap">Valor</th></tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {combined.map(item => (
-                <tr key={`${item.type}-${item.id}`} className="hover:bg-white/5 transition-colors">
-                  <td className="px-8 py-4 whitespace-nowrap"><div className="text-xs text-red-200">{new Date(item.t).toLocaleDateString()}</div><div className="text-[10px] text-red-300">{new Date(item.t).toLocaleTimeString()}</div></td>
-                  <td className="px-8 py-4 whitespace-nowrap"><span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${item.type === 'VENDA' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{item.type}</span></td>
-                  <td className="px-8 py-4 text-sm font-medium serif min-w-[200px]">{item.desc}</td>
-                  <td className="px-8 py-4 text-[10px] text-red-400 uppercase whitespace-nowrap">{item.meth}</td>
-                  <td className={`px-8 py-4 text-right font-bold serif whitespace-nowrap ${item.val >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>R$ {Math.abs(item.val).toFixed(2)}</td>
-                </tr>
-              ))}
-              {combined.length === 0 && <tr><td colSpan={5} className="px-8 py-20 text-center text-red-300 italic">Sem registros de lançamentos.</td></tr>}
-            </tbody>
-          </table>
+    <nav className="bg-red-950/90 backdrop-blur-md border-b border-white/10 p-4 flex justify-between items-center sticky top-0 z-50">
+      <div className="flex items-center gap-4">
+        <h1 className="text-2xl font-bold text-gold serif tracking-wider">Sertão Gourmet</h1>
+        <div className="h-6 w-px bg-white/20 mx-2"></div>
+        <div className="flex gap-2">
+            {[AppMode.VIEW, AppMode.TABLES, AppMode.ADMIN].map(m => (
+                <button 
+                    key={m} 
+                    onClick={() => setMode(m)} 
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mode === m ? 'bg-gold text-black shadow-lg shadow-gold/20' : 'bg-white/5 text-red-200 hover:bg-white/10'}`}
+                >
+                    {m === AppMode.VIEW ? 'Cardápio' : m === AppMode.TABLES ? 'Mesas' : 'Gestão'}
+                </button>
+            ))}
         </div>
       </div>
-    </div>
-  );
-};
-
-const ReportsDashboard = ({ dailyRecords, expenses, cashierHistory }: { dailyRecords: DailyRecord[], expenses: Expense[], cashierHistory: CashierSession[] }) => {
-  const totals = useMemo(() => {
-    const rev = dailyRecords.reduce((s, r) => s + r.total, 0);
-    const exp = expenses.reduce((s, e) => s + e.amount, 0);
-    return { rev, exp, prof: rev - exp };
-  }, [dailyRecords, expenses]);
-  return (
-    <div className="animate-fade-in space-y-12">
-      <h2 className="text-5xl font-bold serif text-white tracking-tighter">Financeiro</h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="bg-red-900 p-10 rounded-[50px] border border-white/10 text-center"><div className="text-red-400 text-[10px] uppercase font-black mb-2">Receita Acumulada</div><div className="text-4xl font-bold text-white serif">R$ {totals.rev.toFixed(2)}</div></div>
-        <div className="bg-red-900 p-10 rounded-[50px] border border-white/10 text-center"><div className="text-red-400 text-[10px] uppercase font-black mb-2">Despesas Totais</div><div className="text-4xl font-bold text-red-400 serif">R$ {totals.exp.toFixed(2)}</div></div>
-        <div className="bg-emerald-900/20 p-10 rounded-[50px] border-2 border-emerald-500/20 text-center"><div className="text-emerald-400 text-[10px] uppercase font-black mb-2">Lucro Operacional</div><div className="text-4xl font-bold text-emerald-400 serif">R$ {totals.prof.toFixed(2)}</div></div>
-      </div>
-      <div className="bg-red-900 rounded-[40px] border border-white/10 p-10 overflow-hidden shadow-2xl">
-        <h3 className="text-xl font-bold serif mb-6">Histórico de Sessões de Caixa</h3>
-        <div className="space-y-4">
-          {cashierHistory.slice(0, 10).map(s => (
-            <div key={s.id} className="flex justify-between items-center p-6 bg-red-800/50 rounded-3xl border border-white/5">
-              <div><div className="text-zinc-100 font-bold serif">{new Date(s.openedAt).toLocaleString()}</div><div className={`text-[9px] uppercase font-black ${s.status === 'OPEN' ? 'text-emerald-400' : 'text-red-300'}`}>{s.status === 'OPEN' ? 'Ativo' : 'Encerrado'}</div></div>
-              <div className="text-right text-sm">
-                <div><span className="text-red-300 text-[9px] uppercase mr-2 font-black">Abrir:</span>R$ {s.openingBalance.toFixed(2)}</div>
-                {s.closingBalance !== undefined && <div><span className="text-red-300 text-[9px] uppercase mr-2 font-black">Fechar:</span>R$ {s.closingBalance.toFixed(2)}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const CashierManagement = ({ currentSession, onOpen, onTriggerClose }: { currentSession: CashierSession | undefined, onOpen: () => void, onTriggerClose: () => void }) => {
-  return (
-    <div className="bg-red-900 p-12 rounded-[60px] border-2 border-white/5 text-center shadow-2xl animate-fade-in max-w-2xl mx-auto">
-      <div className={`w-24 h-24 rounded-full mx-auto mb-8 flex items-center justify-center ${currentSession ? 'bg-emerald-600 shadow-emerald-900/40' : 'bg-red-600 shadow-red-900/40'} shadow-2xl`}>
-        <span className="text-white text-3xl font-bold">{currentSession ? '✓' : '!'}</span>
-      </div>
-      <h3 className="text-3xl font-bold text-white serif mb-2">{currentSession ? 'Caixa Aberto' : 'Caixa Fechado'}</h3>
-      <div className="text-red-400 text-[11px] font-black uppercase tracking-widest mb-10">
-        {currentSession ? `Operando desde ${new Date(currentSession.openedAt).toLocaleTimeString()}` : 'Abra o caixa para começar a vender'}
-      </div>
-      <button onClick={currentSession ? onTriggerClose : onOpen} className={`w-full py-6 rounded-[30px] font-bold uppercase tracking-widest shadow-xl transition-transform hover:scale-105 active:scale-95 ${currentSession ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>{currentSession ? 'Encerrar Caixa' : 'Abrir Caixa'}</button>
-    </div>
-  );
-};
-
-const StockManagement = ({ items, onUpdateStock, onAddItem, onEditItem }: { items: MenuItem[], onUpdateStock: (id: string, newStock: number) => void, onAddItem: () => void, onEditItem: (id: string) => void }) => (
-  <div className="animate-fade-in space-y-8">
-    <header className="flex justify-between items-center">
-      <h3 className="text-2xl font-bold text-white serif">Gestão de Itens e Estoque</h3>
-      <button onClick={onAddItem} className="px-8 py-3 bg-gold text-black rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg">Novo Item</button>
-    </header>
-    <div className="bg-red-900 border border-white/10 rounded-[40px] overflow-hidden shadow-2xl">
-      <table className="w-full text-left">
-        <thead className="bg-red-800 text-gold text-[10px] font-black uppercase">
-          <tr><th className="px-8 py-4">Item</th><th className="px-8 py-4">Estoque</th><th className="px-8 py-4 text-right">Ações</th></tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {items.map(i => (
-            <tr key={i.id} className="hover:bg-white/5 transition-colors">
-              <td className="px-8 py-6"><div className="text-white font-bold serif text-lg">{i.name}</div><div className="text-red-300 text-[9px] uppercase">{i.category}</div></td>
-              <td className="px-8 py-6">
-                <div className="flex items-center gap-4">
-                  <button onClick={() => onUpdateStock(i.id, Math.max(0, i.stock - 1))} className="w-8 h-8 rounded-lg bg-red-800 border border-white/10 text-white">-</button>
-                  <span className="font-mono text-lg">{i.stock}</span>
-                  <button onClick={() => onUpdateStock(i.id, i.stock + 1)} className="w-8 h-8 rounded-lg bg-red-800 border border-white/10 text-white">+</button>
-                </div>
-              </td>
-              <td className="px-8 py-6 text-right"><button onClick={() => onEditItem(i.id)} className="text-gold text-[10px] uppercase font-black border border-gold/20 px-4 py-2 rounded-xl hover:bg-gold hover:text-black transition-all">Editar</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-);
-
-const CategoryManagement = ({ categories, onAdd, onDelete }: { categories: string[], onAdd: (name: string) => void, onDelete: (name: string) => void }) => {
-  const [newC, setNewC] = useState("");
-  return (
-    <div className="animate-fade-in max-w-2xl mx-auto space-y-12">
-      <header className="bg-red-800/50 p-10 rounded-[50px] border border-white/5">
-        <h3 className="text-2xl font-bold text-white serif mb-6 text-center">Categorias</h3>
-        <div className="flex gap-4">
-          <input value={newC} onChange={e => setNewC(e.target.value)} placeholder="Nova categoria..." className="flex-grow bg-red-950 border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-gold" />
-          <button onClick={() => { if(newC) { onAdd(newC); setNewC(""); } }} className="px-10 bg-gold text-black rounded-2xl font-bold uppercase text-[12px] shadow-xl">Adicionar</button>
-        </div>
-      </header>
-      <div className="space-y-4">
-        {categories.map(c => (
-          <div key={c} className="flex justify-between items-center p-6 bg-red-900 border border-white/10 rounded-[35px] group hover:border-gold transition-all">
-            <span className="text-white font-bold serif text-xl">{c}</span>
-            <button onClick={() => { if(confirm(`Deseja excluir ${c}?`)) onDelete(c); }} className="text-red-500/50 text-[10px] uppercase font-black hover:text-red-500">Excluir</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const FooterEditor = ({ data, onChange }: { data: FooterData, onChange: (d: FooterData) => void }) => (
-  <div className="bg-red-900 border-2 border-white/10 rounded-[50px] p-12 max-w-4xl mx-auto space-y-8 animate-fade-in shadow-2xl">
-    <h3 className="text-3xl font-bold text-white serif text-center mb-8">Informações da Marca</h3>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-      <div className="space-y-4"><label className="text-gold text-[10px] font-black uppercase">Nome</label><input value={data.brandName} onChange={e => onChange({...data, brandName: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" /></div>
-      <div className="space-y-4"><label className="text-gold text-[10px] font-black uppercase">Copyright</label><input value={data.copyright} onChange={e => onChange({...data, copyright: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" /></div>
-      <div className="md:col-span-2 space-y-4"><label className="text-gold text-[10px] font-black uppercase">Descrição</label><textarea value={data.description} onChange={e => onChange({...data, description: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white h-24 resize-none" /></div>
-      <div className="space-y-4"><label className="text-gold text-[10px] font-black uppercase">Localização</label><textarea value={data.location} onChange={e => onChange({...data, location: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white h-24 resize-none" /></div>
-      <div className="space-y-4"><label className="text-gold text-[10px] font-black uppercase">Horário</label><textarea value={data.hours} onChange={e => onChange({...data, hours: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white h-24 resize-none" /></div>
-    </div>
-  </div>
-);
-
-// --- Main App ---
-
-export default function App() {
-  // --- Lazy Initialization for State ---
-  const [items, setItems] = useState<MenuItem[]>(() => {
-    try {
-        const saved = localStorage.getItem('sg_menu');
-        return saved ? JSON.parse(saved) : INITIAL_MENU;
-    } catch {
-        return INITIAL_MENU;
-    }
-  });
-
-  const [categories, setCategories] = useState<string[]>(() => {
-    try {
-        const saved = localStorage.getItem('sg_categories');
-        return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
-    } catch {
-        return INITIAL_CATEGORIES;
-    }
-  });
-
-  const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>(() => {
-    try {
-        const saved = localStorage.getItem('sg_daily_records');
-        return saved ? JSON.parse(saved) : [];
-    } catch {
-        return [];
-    }
-  });
-
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    try {
-        const saved = localStorage.getItem('sg_expenses');
-        return saved ? JSON.parse(saved) : [];
-    } catch {
-        return [];
-    }
-  });
-
-  const [cashierHistory, setCashierHistory] = useState<CashierSession[]>(() => {
-    try {
-        const saved = localStorage.getItem('sg_cashier_history');
-        return saved ? JSON.parse(saved) : [];
-    } catch {
-        return [];
-    }
-  });
-
-  const [tables, setTables] = useState<Table[]>(() => {
-    try {
-        const saved = localStorage.getItem('sg_tables');
-        return saved ? JSON.parse(saved) : Array.from({ length: TOTAL_TABLES }, (_, i) => ({ id: i + 1, isActive: false, items: [] }));
-    } catch {
-        return Array.from({ length: TOTAL_TABLES }, (_, i) => ({ id: i + 1, isActive: false, items: [] }));
-    }
-  });
-
-  const [footerData, setFooterData] = useState<FooterData>(() => {
-      try {
-          const saved = localStorage.getItem('sg_footer');
-          return saved ? JSON.parse(saved) : DEFAULT_FOOTER;
-      } catch {
-          return DEFAULT_FOOTER;
-      }
-  });
-
-  const [mode, setMode] = useState<AppMode>(AppMode.VIEW);
-  const [adminTab, setAdminTab] = useState<'menu' | 'categories' | 'stock' | 'footer' | 'caixa'>('menu');
-  const [activeCategory, setActiveCategory] = useState<string>('Todos');
-  const [isLoading, setIsLoading] = useState(false);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  
-  const [isOpeningCashier, setIsOpeningCashier] = useState(false);
-  const [isClosingCashier, setIsClosingCashier] = useState(false);
-
-  const currentSession = useMemo(() => cashierHistory.find(s => s.status === 'OPEN'), [cashierHistory]);
-  const isCashierOpen = !!currentSession;
-
-  const [activeTableId, setActiveTableId] = useState<number | null>(null);
-  const [isItemSelectorOpen, setIsItemSelectorOpen] = useState(false);
-  const [closingTable, setClosingTable] = useState<Table | null>(null);
-  const [isQuickSaleOpen, setIsQuickSaleOpen] = useState(false);
-  const [quickSaleInitialItem, setQuickSaleInitialItem] = useState<MenuItem | undefined>(undefined);
-  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
-  const [namingTableId, setNamingTableId] = useState<number | null>(null);
-
-  // --- Persistence Effect (Save Only) ---
-  useEffect(() => {
-    try {
-        localStorage.setItem('sg_menu', JSON.stringify(items));
-        localStorage.setItem('sg_categories', JSON.stringify(categories));
-        localStorage.setItem('sg_daily_records', JSON.stringify(dailyRecords));
-        localStorage.setItem('sg_expenses', JSON.stringify(expenses));
-        localStorage.setItem('sg_cashier_history', JSON.stringify(cashierHistory));
-        localStorage.setItem('sg_tables', JSON.stringify(tables));
-        localStorage.setItem('sg_footer', JSON.stringify(footerData));
-    } catch (error) {
-        console.error("Failed to save data to localStorage:", error);
-    }
-  }, [items, categories, dailyRecords, expenses, cashierHistory, tables, footerData]);
-
-  const handleOpenCashier = (bal: number) => {
-    const newS: CashierSession = { id: Date.now().toString(), openedAt: Date.now(), openingBalance: bal, status: 'OPEN' };
-    setCashierHistory(prev => [newS, ...prev]);
-    setIsOpeningCashier(false);
-  };
-
-  const handleCloseCashier = (bal: number) => {
-    if (!currentSession) return;
-    setCashierHistory(prev => prev.map(s => s.id === currentSession.id ? { ...s, status: 'CLOSED', closedAt: Date.now(), closingBalance: bal } : s));
-    setIsClosingCashier(false);
-  };
-
-  const handleRecordSale = (item: MenuItem) => {
-    if (!isCashierOpen) {
-      setIsOpeningCashier(true);
-      return;
-    }
-    if (activeTableId !== null) {
-      setTables(prev => prev.map(t => {
-        if (t.id === activeTableId) {
-          const existing = t.items.find(i => i.menuItemId === item.id);
-          const updated = existing ? t.items.map(i => i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i) : [...t.items, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
-          return { ...t, isActive: updated.length > 0, items: updated, openedAt: t.openedAt || Date.now() };
-        }
-        return t;
-      }));
-    } else {
-        // Automatically open quick sale if no table is selected
-        setQuickSaleInitialItem(item);
-        setIsQuickSaleOpen(true);
-    }
-  };
-
-  const handleUpdateQty = (tableId: number, itemId: string, delta: number) => {
-    setTables(prev => prev.map(t => {
-      if (t.id === tableId) {
-        const newItems = t.items.map(i => i.menuItemId === itemId ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0);
-        return { ...t, items: newItems, isActive: newItems.length > 0 };
-      }
-      return t;
-    }));
-  };
-
-  const finalizeClosure = (tableId: number, method: string) => {
-    const table = tables.find(t => t.id === tableId);
-    if (!table || !currentSession) return;
-    const total = table.items.reduce((s, i) => s + (i.price * i.quantity), 0);
-    const newR: DailyRecord = { id: Date.now().toString(), tableId, customerName: table.customerName, openedAt: table.openedAt || Date.now(), closedAt: Date.now(), items: [...table.items], total, paymentMethod: method, sessionId: currentSession.id };
-    setDailyRecords(prev => [newR, ...prev]);
-    setTables(prev => prev.map(t => t.id === tableId ? { ...t, isActive: false, items: [], customerName: undefined, openedAt: undefined } : t));
-    setClosingTable(null);
-    setActiveTableId(null);
-  };
-
-  const finalizeQuickSale = (cart: TableItem[], method: string) => {
-    if (!currentSession) {
-      setIsOpeningCashier(true);
-      return;
-    }
-    const total = cart.reduce((s, i) => s + (i.price * i.quantity), 0);
-    const newR: DailyRecord = { id: Date.now().toString(), tableId: 0, openedAt: Date.now(), closedAt: Date.now(), items: [...cart], total, paymentMethod: method, sessionId: currentSession.id };
-    setDailyRecords(prev => [newR, ...prev]);
-    setIsQuickSaleOpen(false);
-    setQuickSaleInitialItem(undefined);
-  };
-
-  const editingItem = useMemo(() => items.find(i => i.id === editingItemId), [items, editingItemId]);
-
-  return (
-    <div className="min-h-screen bg-red-950 text-white flex flex-col font-sans selection:bg-gold selection:text-black">
-      {isLoading && <LoadingOverlay />}
       
-      {/* Modals */}
-      {isOpeningCashier && <OpenCashierModal onConfirm={handleOpenCashier} onClose={() => setIsOpeningCashier(false)} />}
-      {isClosingCashier && currentSession && <CloseCashierModal session={currentSession} records={dailyRecords} expenses={expenses} onConfirm={handleCloseCashier} onClose={() => setIsClosingCashier(false)} />}
-      {isExpenseModalOpen && <ExpenseModal onSave={(d) => { if (currentSession) setExpenses(p => [{ ...d, id: Date.now().toString(), timestamp: Date.now(), sessionId: currentSession.id }, ...p]); setIsExpenseModalOpen(false); }} onClose={() => setIsExpenseModalOpen(false)} />}
-      {isQuickSaleOpen && <QuickSaleModal items={items} initialItem={quickSaleInitialItem} onFinishSale={finalizeQuickSale} onClose={() => { setIsQuickSaleOpen(false); setQuickSaleInitialItem(undefined); }} />}
-      {closingTable && <PaymentModal title={`Mesa ${closingTable.id}`} total={closingTable.items.reduce((s, i) => s + (i.price * i.quantity), 0)} customerName={closingTable.customerName} onConfirm={(m) => finalizeClosure(closingTable.id, m)} onClose={() => setClosingTable(null)} />}
-      {namingTableId && <CustomerNameModal initialName={tables.find(t => t.id === namingTableId)?.customerName || ""} onSave={(n) => { setTables(p => p.map(t => t.id === namingTableId ? { ...t, customerName: n } : t)); setNamingTableId(null); }} onClose={() => setNamingTableId(null)} />}
-      {isItemSelectorOpen && activeTableId && <ItemSelectorModal items={items} onAddItem={handleRecordSale} onClose={() => setIsItemSelectorOpen(false)} />}
-      {editingItem && <EditItemModal item={editingItem} categories={categories} onSave={(updated) => { setItems(p => p.map(i => i.id === updated.id ? updated : i)); setEditingItemId(null); }} onClose={() => setEditingItemId(null)} />}
+      <div className="flex items-center gap-3">
+         <div className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase flex items-center gap-2 ${isCashierOpen ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}`}>
+            <div className={`w-2 h-2 rounded-full ${isCashierOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
+            {isCashierOpen ? 'Caixa Aberto' : 'Caixa Fechado'}
+         </div>
+         
+         <button onClick={onToggleCashier} className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase">
+            {isCashierOpen ? 'Fechar Caixa' : 'Abrir Caixa'}
+         </button>
 
-      <Navbar mode={mode} setMode={setMode} isCashierOpen={isCashierOpen} onToggleCashier={() => isCashierOpen ? setIsClosingCashier(true) : setIsOpeningCashier(true)} onOpenQuickSale={() => isCashierOpen ? setIsQuickSaleOpen(true) : setIsOpeningCashier(true)} onOpenExpense={() => isCashierOpen ? setIsExpenseModalOpen(true) : setIsOpeningCashier(true)} />
-
-      <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-12">
-        {mode === AppMode.TRANSACTIONS ? <TransactionsSpreadsheet records={dailyRecords} expenses={expenses} /> :
-         mode === AppMode.REPORTS ? <ReportsDashboard dailyRecords={dailyRecords} expenses={expenses} cashierHistory={cashierHistory} /> :
-         mode === AppMode.TABLES ? <DigitalComanda tables={tables} activeTableId={activeTableId} onSelectTable={setActiveTableId} onOpenNaming={setNamingTableId} onOpenItemSelector={() => setIsItemSelectorOpen(true)} onOpenPayment={setClosingTable} onUpdateQty={handleUpdateQty} /> :
-         mode === AppMode.ADMIN ? <AdminPanel items={items} categories={categories} currentSession={currentSession} adminTab={adminTab} setAdminTab={setAdminTab} setEditingItemId={setEditingItemId} setItems={setItems} setCategories={setCategories} footerData={footerData} setFooterData={setFooterData} setIsOpeningCashier={setIsOpeningCashier} setIsClosingCashier={setIsClosingCashier} /> :
-         <MenuView items={items} categories={categories} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onAdd={handleRecordSale} activeTableId={activeTableId} />}
-      </main>
-
-      <Footer data={footerData} />
-    </div>
-  );
-}
-
-const Navbar = ({ mode, setMode, isCashierOpen, onToggleCashier, onOpenQuickSale, onOpenExpense }: NavbarProps) => (
-  <nav className="border-b border-white/10 bg-red-950/50 backdrop-blur-md sticky top-0 z-[100] px-4 py-3">
-    <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-      <div className="flex items-center gap-4 flex-grow overflow-hidden">
-        <button onClick={() => setMode(AppMode.VIEW)} className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-10 h-10 bg-gold rounded-xl flex items-center justify-center font-black text-black">SG</div>
-          <div className="hidden md:block text-left"><h1 className="text-lg font-bold serif">Sertão</h1></div>
-        </button>
-        <div className="flex-grow flex gap-1 bg-red-800/50 p-1 rounded-full border border-white/5 overflow-x-auto no-scrollbar mask-linear">
-          {[{ id: AppMode.VIEW, label: 'Menu' }, { id: AppMode.TABLES, label: 'Mesas' }, { id: AppMode.REPORTS, label: 'Financeiro' }, { id: AppMode.TRANSACTIONS, label: 'Caixa' }].map(t => (
-            <button key={t.id} onClick={() => setMode(t.id)} className={`px-4 py-2 rounded-full text-[9px] font-black uppercase whitespace-nowrap flex-shrink-0 ${mode === t.id ? 'bg-red-700 text-white shadow-lg' : 'text-red-400 hover:text-white'}`}>{t.label}</button>
-          ))}
-        </div>
+         {isCashierOpen && (
+             <>
+                <button onClick={onOpenExpense} className="bg-red-900/50 border border-red-500/30 text-red-300 px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-red-900 transition-colors">
+                    Saída/Despesa
+                </button>
+                <button onClick={onOpenQuickSale} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-emerald-900/50 hover:scale-105 transition-transform">
+                    Venda Rápida
+                </button>
+             </>
+         )}
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <div className="hidden sm:flex items-center gap-2">
-          <button onClick={onOpenQuickSale} className="p-2 bg-red-800 border border-gold/20 rounded-lg text-gold hover:bg-gold/10" title="Balcão">⚡</button>
-          <button onClick={onOpenExpense} className="p-2 bg-red-800 border border-red-500/20 rounded-lg text-red-500 hover:bg-red-500/10" title="Despesa">💸</button>
-        </div>
-        <button onClick={() => setMode(mode === AppMode.ADMIN ? AppMode.VIEW : AppMode.ADMIN)} className="px-4 py-2 bg-gold-gradient text-black rounded-xl font-black text-[10px] uppercase shadow-lg shadow-gold/20">{mode === AppMode.ADMIN ? 'Sair' : 'Gestão'}</button>
-        <button onClick={onToggleCashier} className={`w-3 h-3 rounded-full ${isCashierOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} title={isCashierOpen ? "Caixa Aberto" : "Caixa Fechado"}></button>
-      </div>
-    </div>
-  </nav>
-);
-
-const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, onOpenItemSelector, onOpenPayment, onUpdateQty }: DigitalComandaProps) => {
-  const table = tables.find(t => t.id === activeTableId);
-  return (
-    <div className="flex flex-col lg:flex-row gap-8 animate-fade-in">
-      <div className="flex-grow">
-        <header className="mb-8">
-          <h2 className="text-4xl font-bold serif text-white mb-2 tracking-tighter">Mesas</h2>
-          <p className="text-gold text-[10px] uppercase tracking-[0.3em] font-black opacity-80">Mapa de Atendimento</p>
-        </header>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {tables.map(t => (
-            <button key={t.id} onClick={() => onSelectTable(t.id)} className={`h-32 rounded-[30px] border-2 transition-all flex flex-col items-center justify-center gap-1 ${activeTableId === t.id ? 'border-gold bg-gold/10' : t.isActive ? 'border-gold/40 bg-red-800' : 'border-white/5 bg-red-900 hover:bg-red-800'}`}>
-              <span className="text-[10px] font-black uppercase text-red-400">Mesa {t.id}</span>
-              {t.isActive ? <div className="text-white font-bold serif">R$ {t.items.reduce((s, i) => s + (i.price * i.quantity), 0).toFixed(2)}</div> : <div className="text-[8px] text-red-200 uppercase font-black">Livre</div>}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="w-full lg:w-[400px]">
-        {table ? (
-          <div className="bg-red-900 border border-gold/30 rounded-[40px] flex flex-col h-[600px] overflow-hidden shadow-2xl">
-            <div className="p-6 border-b border-white/10 bg-gold/5 flex justify-between items-center">
-              <div><h3 className="text-xl font-bold serif">Mesa #{table.id}</h3><button onClick={() => onOpenNaming(table.id)} className="text-[9px] text-gold uppercase font-black">{table.customerName || '+ Identificar'}</button></div>
-            </div>
-            <div className="flex-grow p-6 space-y-3 overflow-y-auto custom-scrollbar">
-              {table.items.map(item => (
-                <div key={item.menuItemId} className="flex justify-between items-center p-3 bg-red-800 rounded-2xl">
-                  <div className="flex-grow truncate pr-2"><div className="font-bold text-sm text-white truncate">{item.name}</div><div className="text-gold font-black text-xs">R$ {item.price.toFixed(2)}</div></div>
-                  <div className="flex items-center gap-2 bg-red-950 px-2 py-1 rounded-xl">
-                    <button onClick={() => onUpdateQty(table.id, item.menuItemId, -1)} className="text-red-400">-</button>
-                    <span className="text-xs font-black w-4 text-center">{item.quantity}</span>
-                    <button onClick={() => onUpdateQty(table.id, item.menuItemId, 1)} className="text-red-400">+</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="p-6 border-t border-white/10 bg-red-800/50 space-y-4">
-              <div className="flex justify-between items-end"><span className="text-red-400 text-[10px] font-black uppercase">Subtotal</span><span className="text-3xl font-bold text-gold serif">R$ {table.items.reduce((s, i) => s + (i.price * i.quantity), 0).toFixed(2)}</span></div>
-              <div className="grid grid-cols-2 gap-3"><button onClick={onOpenItemSelector} className="py-4 bg-white/5 rounded-2xl text-[9px] font-black uppercase">Adicionar</button><button onClick={() => onOpenPayment(table)} className="py-4 bg-gold text-black rounded-2xl text-[9px] font-black uppercase shadow-lg shadow-gold/20">Checkout</button></div>
-            </div>
-          </div>
-        ) : <div className="h-full h-[600px] border-2 border-dashed border-red-800 rounded-[40px] flex items-center justify-center text-red-200 italic">Selecione uma mesa</div>}
-      </div>
-    </div>
+    </nav>
   );
 };
 
 const MenuView = ({ items, categories, activeCategory, setActiveCategory, onAdd, activeTableId }: MenuViewProps) => {
-  const filtered = items.filter(i => activeCategory === 'Todos' || i.category === activeCategory);
-  return (
-    <div className="animate-fade-in">
-      <h2 className="text-5xl md:text-7xl font-black mb-12 text-center serif tracking-tighter">O <span className="text-gold">Cardápio</span></h2>
-      <div className="flex gap-2 overflow-x-auto no-scrollbar justify-center mb-12 px-4">
-        <button onClick={() => setActiveCategory('Todos')} className={`px-5 py-2 rounded-full text-[10px] font-black uppercase transition-all border-2 flex-shrink-0 ${activeCategory === 'Todos' ? 'bg-gold text-black border-gold' : 'text-red-400 border-white/5'}`}>Todos</button>
-        {categories.map(c => (
-          <button key={c} onClick={() => setActiveCategory(c)} className={`px-5 py-2 rounded-full text-[10px] font-black uppercase transition-all border-2 flex-shrink-0 ${activeCategory === c ? 'bg-gold text-black border-gold' : 'text-red-400 border-white/5'}`}>{c}</button>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {filtered.map(item => (
-          <div key={item.id} className="bg-red-900 border border-white/5 rounded-[40px] p-8 flex flex-col group hover:border-gold transition-all duration-500 shadow-2xl">
-            {item.imageUrl && <img src={item.imageUrl} alt={item.name} className="h-56 w-full object-cover rounded-[30px] mb-6" />}
-            <div className="flex justify-between items-start mb-4"><h3 className="text-xl font-bold serif">{item.name}</h3><span className="text-gold font-black">R$ {item.price.toFixed(2)}</span></div>
-            <div className="text-red-200 text-sm italic mb-8 flex-grow">{item.description}</div>
-            <button onClick={() => onAdd(item)} className="w-full py-4 bg-gold text-black rounded-2xl font-black text-[10px] uppercase shadow-xl hover:scale-105 transition-transform">{activeTableId ? `Adicionar à Mesa ${activeTableId}` : 'Adicionar Pedido'}</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+    const filtered = activeCategory === 'Todos' ? items : items.filter(i => i.category === activeCategory);
+    
+    return (
+        <div className="p-6 h-full overflow-hidden flex flex-col">
+            <div className="flex gap-2 overflow-x-auto pb-4 custom-scrollbar mb-4">
+                <button onClick={() => setActiveCategory('Todos')} className={`px-6 py-3 rounded-2xl whitespace-nowrap text-[11px] font-black uppercase tracking-widest transition-all ${activeCategory === 'Todos' ? 'bg-gold text-black' : 'bg-red-900/50 text-red-200 border border-white/5'}`}>Todos</button>
+                {categories.map(c => (
+                    <button key={c} onClick={() => setActiveCategory(c)} className={`px-6 py-3 rounded-2xl whitespace-nowrap text-[11px] font-black uppercase tracking-widest transition-all ${activeCategory === c ? 'bg-gold text-black' : 'bg-red-900/50 text-red-200 border border-white/5'}`}>{c}</button>
+                ))}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto custom-scrollbar flex-grow pb-20">
+                {filtered.map(item => (
+                    <div key={item.id} className="bg-red-900/30 border border-white/5 rounded-[30px] overflow-hidden group hover:border-gold/30 transition-all flex flex-col">
+                        <div className="h-48 overflow-hidden relative">
+                            <img src={item.imageUrl || `https://ui-avatars.com/api/?name=${item.name}&background=random`} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-red-950 to-transparent opacity-80"></div>
+                            <div className="absolute bottom-4 left-4 right-4">
+                                <h3 className="text-xl font-bold text-white serif leading-tight mb-1 drop-shadow-lg">{item.name}</h3>
+                                <p className="text-white/80 text-xs line-clamp-2">{item.description}</p>
+                            </div>
+                        </div>
+                        <div className="p-5 flex justify-between items-center mt-auto bg-white/5">
+                            <span className="text-2xl font-bold text-gold serif">R$ {item.price.toFixed(2)}</span>
+                            {activeTableId && (
+                                <button onClick={() => onAdd(item)} className="bg-gold text-black w-10 h-10 rounded-full flex items-center justify-center hover:scale-110 transition-transform font-bold text-xl shadow-lg">+</button>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 };
 
-const AdminPanel = ({ items, categories, currentSession, adminTab, setAdminTab, setEditingItemId, setItems, setCategories, footerData, setFooterData, setIsOpeningCashier, setIsClosingCashier }: AdminPanelProps) => {
-  const renderContent = () => {
-    switch (adminTab) {
-      case 'caixa': return <CashierManagement currentSession={currentSession} onOpen={() => setIsOpeningCashier(true)} onTriggerClose={() => setIsClosingCashier(true)} />;
-      case 'stock': return <StockManagement items={items} onUpdateStock={(id: string, val: number) => setItems(p => p.map(i => i.id === id ? {...i, stock: val} : i))} onAddItem={() => { const n: MenuItem = { id: Date.now().toString(), name: 'Novo Prato', description: 'Descrição deliciosa', price: 0, category: categories[0] || 'Geral', isAvailable: true, stock: 0, imageUrl: 'https://picsum.photos/400/300' }; setItems(p => [n, ...p]); setEditingItemId(n.id); }} onEditItem={setEditingItemId} />;
-      case 'categories': return <CategoryManagement categories={categories} onAdd={(n: string) => setCategories(p => [...p, n])} onDelete={(n: string) => setCategories(p => p.filter(c => c !== n))} />;
-      case 'footer': return <FooterEditor data={footerData} onChange={setFooterData} />;
-      default: return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-         {items.map(i => (
-           <div key={i.id} className="p-6 bg-red-900 border border-white/5 rounded-[40px] flex items-center justify-between group hover:border-gold/50 transition-all">
-             <div className="flex items-center gap-4 truncate">
-                {i.imageUrl && <img src={i.imageUrl} alt={i.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />}
-                <div className="truncate">
-                    <div className="text-white font-bold text-sm serif truncate">{i.name}</div>
-                    <div className="text-[9px] text-red-400 uppercase">{i.category}</div>
-                </div>
+const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, onOpenItemSelector, onOpenPayment, onUpdateQty }: DigitalComandaProps) => {
+    const activeTable = tables.find(t => t.id === activeTableId);
+    
+    return (
+        <div className="flex h-full">
+            <div className="w-2/3 p-8 overflow-y-auto grid grid-cols-3 gap-6 content-start custom-scrollbar">
+                {tables.map(table => (
+                    <button 
+                        key={table.id} 
+                        onClick={() => onSelectTable(table.id)}
+                        className={`p-6 rounded-[30px] border-2 transition-all relative overflow-hidden ${
+                            table.isActive 
+                                ? activeTableId === table.id ? 'bg-emerald-900/40 border-gold' : 'bg-emerald-900/20 border-emerald-500/30'
+                                : activeTableId === table.id ? 'bg-white/5 border-gold' : 'bg-white/5 border-white/5'
+                        }`}
+                    >
+                        <div className="flex justify-between items-start mb-4">
+                            <span className="text-2xl font-black text-white opacity-50">{table.id.toString().padStart(2, '0')}</span>
+                            {table.isActive && <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"></div>}
+                        </div>
+                        <div className="text-left">
+                            <div className="font-bold text-white text-lg truncate">{table.customerName || 'Livre'}</div>
+                            {table.isActive && (
+                                <div className="text-emerald-400 text-xs font-mono mt-1">
+                                    R$ {table.items.reduce((a, b) => a + (b.price * b.quantity), 0).toFixed(2)}
+                                </div>
+                            )}
+                        </div>
+                    </button>
+                ))}
             </div>
-             <button onClick={() => setEditingItemId(i.id)} className="p-3 bg-white/5 rounded-full text-red-400 hover:text-white flex-shrink-0">✎</button>
-           </div>
-         ))}
-       </div>
-      );
-    }
+            
+            <div className="w-1/3 bg-red-950/50 border-l border-white/5 flex flex-col">
+                {activeTable ? (
+                    <>
+                        <header className="p-8 border-b border-white/5 bg-red-900/20">
+                            <div className="flex justify-between items-start mb-2">
+                                <h2 className="text-3xl font-bold serif text-white">Mesa {activeTable.id}</h2>
+                                <button onClick={() => onOpenNaming(activeTable.id)} className="text-gold text-[10px] font-black uppercase hover:underline">Editar Nome</button>
+                            </div>
+                            <div className="text-red-200 text-sm">{activeTable.customerName || 'Sem cliente identificado'}</div>
+                        </header>
+                        
+                        <div className="flex-grow overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                            {activeTable.items.map(item => (
+                                <div key={item.menuItemId} className="flex justify-between items-center bg-red-900/30 p-4 rounded-2xl border border-white/5">
+                                    <div className="flex-grow pr-2">
+                                        <div className="text-white font-bold text-sm line-clamp-1">{item.name}</div>
+                                        <div className="text-gold text-xs">R$ {(item.price * item.quantity).toFixed(2)}</div>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-red-950 px-2 py-1 rounded-xl border border-white/5">
+                                        <button onClick={() => onUpdateQty(activeTable.id, item.menuItemId, -1)} className="text-red-400 hover:text-white">-</button>
+                                        <span className="text-xs font-black w-4 text-center">{item.quantity}</span>
+                                        <button onClick={() => onUpdateQty(activeTable.id, item.menuItemId, 1)} className="text-emerald-400 hover:text-white">+</button>
+                                    </div>
+                                </div>
+                            ))}
+                            {activeTable.items.length === 0 && (
+                                <div className="text-center text-red-400/50 py-10 italic">Nenhum item lançado</div>
+                            )}
+                        </div>
+                        
+                        <footer className="p-6 border-t border-white/5 bg-red-900/30 space-y-3">
+                            <div className="flex justify-between items-end mb-2">
+                                <span className="text-[10px] font-black uppercase text-red-300">Total da Mesa</span>
+                                <span className="text-3xl font-bold text-gold serif">R$ {activeTable.items.reduce((a, b) => a + (b.price * b.quantity), 0).toFixed(2)}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={onOpenItemSelector} className="py-4 bg-emerald-600 text-white font-bold rounded-xl text-[10px] uppercase shadow-lg shadow-emerald-900/50 hover:scale-105 transition-transform">Adicionar Item</button>
+                                <button onClick={() => onOpenPayment(activeTable)} disabled={activeTable.items.length === 0} className="py-4 bg-gold text-black font-bold rounded-xl text-[10px] uppercase shadow-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:scale-100">Fechar Conta</button>
+                            </div>
+                        </footer>
+                    </>
+                ) : (
+                    <div className="flex-grow flex items-center justify-center text-red-400/30 text-center p-10">
+                        <div>
+                            <div className="text-4xl mb-4">🍽️</div>
+                            <div className="text-sm font-bold uppercase tracking-widest">Selecione uma mesa</div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick }: AdminPanelProps) => {
+    
+    // Logic for Cashier Timeline/Extraction
+    const cashierStats = useMemo(() => {
+        if (!currentSession) return null;
+        const sessionRecords = dailyRecords.filter(r => r.sessionId === currentSession.id);
+        const sessionExpenses = expenses.filter(e => e.sessionId === currentSession.id);
+        
+        let cashSales = 0;
+        let digitalSales = 0;
+        
+        sessionRecords.forEach(r => {
+            if(r.paymentMethod === 'Dinheiro') cashSales += r.total;
+            else digitalSales += r.total;
+        });
+
+        const totalExpenses = sessionExpenses.reduce((sum, e) => sum + e.amount, 0);
+        const currentDrawerBalance = currentSession.openingBalance + cashSales - totalExpenses;
+        const totalRevenue = cashSales + digitalSales;
+
+        return { totalRevenue, cashSales, digitalSales, totalExpenses, currentDrawerBalance };
+    }, [currentSession, dailyRecords, expenses]);
+
+    const cashierOperations = useMemo(() => {
+        if (!currentSession) return [];
+        
+        const sales = dailyRecords
+            .filter(r => r.sessionId === currentSession.id)
+            .map(r => ({
+                id: r.id,
+                type: 'ENTRADA',
+                category: 'Venda',
+                description: r.customerName || `Mesa ${r.tableId > 0 ? r.tableId : 'Balcão'}`,
+                amount: r.total,
+                method: r.paymentMethod,
+                time: r.closedAt
+            }));
+
+        const exps = expenses
+            .filter(e => e.sessionId === currentSession.id)
+            .map(e => ({
+                id: e.id,
+                type: 'SAIDA',
+                category: 'Despesa',
+                description: e.description,
+                amount: e.amount,
+                method: 'Dinheiro', // Assumindo retirada do caixa
+                time: e.timestamp
+            }));
+
+        // Adicionar o evento de abertura
+        const opening = [{
+            id: 'opening',
+            type: 'ENTRADA',
+            category: 'Abertura',
+            description: 'Fundo de Troco Inicial',
+            amount: currentSession.openingBalance,
+            method: 'Dinheiro',
+            time: currentSession.openedAt
+        }];
+
+        return [...opening, ...sales, ...exps].sort((a, b) => b.time - a.time);
+    }, [currentSession, dailyRecords, expenses]);
+
+    return (
+        <div className="flex h-full flex-col">
+            <div className="flex border-b border-white/10 bg-red-900/20 px-6">
+                {['menu', 'categories', 'stock', 'footer', 'caixa'].map(t => (
+                    <button 
+                        key={t}
+                        onClick={() => setAdminTab(t as any)}
+                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-red-300 hover:text-white'}`}
+                    >
+                        {t === 'caixa' ? 'Financeiro' : t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                ))}
+            </div>
+            
+            <div className="flex-grow overflow-y-auto p-8 custom-scrollbar bg-red-950/30">
+                {adminTab === 'menu' && (
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-2xl font-bold serif text-white">Gerenciar Cardápio</h3>
+                            <button onClick={handleAddNewItem} className="bg-gold text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 transition-transform">+ Novo Prato</button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-4">
+                            {items.map(item => (
+                                <div key={item.id} className="bg-red-900/40 p-4 rounded-2xl flex items-center justify-between border border-white/5 hover:border-white/20 transition-all">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-lg bg-red-950 overflow-hidden"><img src={item.imageUrl} className="w-full h-full object-cover" alt="" /></div>
+                                        <div>
+                                            <div className="font-bold text-white">{item.name}</div>
+                                            <div className="text-xs text-gold">R$ {item.price.toFixed(2)}</div>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setEditingItemId(item.id)} className="text-red-300 hover:text-white underline text-[10px] font-bold uppercase">Editar</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                
+                {adminTab === 'categories' && (
+                    <div className="space-y-4">
+                        <h3 className="text-2xl font-bold serif text-white mb-6">Categorias</h3>
+                        <div className="flex gap-4 flex-wrap">
+                            {categories.map(c => (
+                                <div key={c} className="bg-red-900/50 px-4 py-2 rounded-xl border border-white/5 flex items-center gap-2">
+                                    <span className="text-white font-bold">{c}</span>
+                                    <button onClick={() => handleRemoveCategory(c)} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                                </div>
+                            ))}
+                            <button onClick={() => {
+                                const name = prompt("Nova Categoria:");
+                                if(name) handleAddCategory(name);
+                            }} className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 text-gold hover:bg-white/10">+ Adicionar</button>
+                        </div>
+                    </div>
+                )}
+
+                {adminTab === 'stock' && (
+                     <div className="space-y-4">
+                         <h3 className="text-2xl font-bold serif text-white mb-6">Controle de Estoque</h3>
+                         {items.map(item => (
+                             <div key={item.id} className="flex justify-between items-center bg-red-900/30 p-4 rounded-xl">
+                                 <span className="text-white font-bold">{item.name}</span>
+                                 <div className="flex items-center gap-3">
+                                     <button onClick={() => handleUpdateStock(item.id, Math.max(0, item.stock - 1))} className="w-8 h-8 rounded-lg bg-red-950 text-red-400 font-bold">-</button>
+                                     <span className={`font-mono font-bold w-12 text-center ${item.stock < 10 ? 'text-red-500' : 'text-emerald-400'}`}>{item.stock}</span>
+                                     <button onClick={() => handleUpdateStock(item.id, item.stock + 1)} className="w-8 h-8 rounded-lg bg-red-950 text-emerald-400 font-bold">+</button>
+                                 </div>
+                             </div>
+                         ))}
+                     </div>
+                )}
+
+                {adminTab === 'footer' && (
+                    <div className="space-y-4 max-w-xl">
+                        <h3 className="text-2xl font-bold serif text-white mb-6">Dados do Rodapé</h3>
+                        <input value={footerData.brandName} onChange={e => setFooterData({...footerData, brandName: e.target.value})} className="w-full bg-red-900/50 border border-white/10 rounded-xl px-4 py-3 text-white" placeholder="Nome da Marca" />
+                        <textarea value={footerData.description} onChange={e => setFooterData({...footerData, description: e.target.value})} className="w-full bg-red-900/50 border border-white/10 rounded-xl px-4 py-3 text-white h-24" placeholder="Descrição" />
+                        <textarea value={footerData.location} onChange={e => setFooterData({...footerData, location: e.target.value})} className="w-full bg-red-900/50 border border-white/10 rounded-xl px-4 py-3 text-white" placeholder="Endereço" />
+                        <textarea value={footerData.hours} onChange={e => setFooterData({...footerData, hours: e.target.value})} className="w-full bg-red-900/50 border border-white/10 rounded-xl px-4 py-3 text-white" placeholder="Horários" />
+                    </div>
+                )}
+
+                {adminTab === 'caixa' && (
+                    <div className="space-y-6">
+                         {!currentSession ? (
+                            <div className="bg-red-900 p-16 rounded-[40px] border-2 border-white/5 text-center flex flex-col items-center justify-center">
+                                <div className="w-20 h-20 rounded-full bg-red-800 shadow-xl shadow-red-950/50 mb-6 flex items-center justify-center border-4 border-red-950">
+                                    <span className="text-4xl opacity-50">🔒</span>
+                                </div>
+                                <h3 className="text-3xl font-bold text-white serif mb-2">Caixa Fechado</h3>
+                                <p className="text-red-300 mb-8 max-w-xs text-sm">Abra o caixa para ver o painel financeiro.</p>
+                                <button onClick={onOpenCashierClick} className="px-10 py-4 rounded-full bg-emerald-600 text-white font-bold uppercase tracking-widest hover:scale-105 transition-all shadow-lg">
+                                    Abrir Caixa
+                                </button>
+                            </div>
+                         ) : (
+                             <>
+                                <header className="flex flex-col md:flex-row justify-between items-center bg-red-900/50 p-6 rounded-[30px] border border-white/5 mb-6">
+                                    <div>
+                                        <div className="flex items-center gap-3 mb-1">
+                                            <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                                            <h3 className="text-2xl font-bold text-white serif">Caixa Aberto</h3>
+                                        </div>
+                                        <div className="text-red-300 text-xs uppercase tracking-widest font-black">Iniciado às {new Date(currentSession.openedAt).toLocaleTimeString()}</div>
+                                    </div>
+                                    <button onClick={onCloseCashierClick} className="mt-4 md:mt-0 px-6 py-3 bg-red-600/20 text-red-200 border border-red-500/30 rounded-full font-black text-[10px] uppercase hover:bg-red-600 hover:text-white transition-all">
+                                        Encerrar Turno / Fechar Caixa
+                                    </button>
+                                </header>
+
+                                {/* Dashboard de KPIs */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                                    <div className="bg-red-900 p-6 rounded-[30px] border border-white/5 relative overflow-hidden group hover:border-gold/30 transition-all">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl">💰</div>
+                                        <div className="text-red-400 text-[10px] uppercase font-black mb-2 tracking-widest">Faturamento Total</div>
+                                        <div className="text-2xl font-bold text-white serif">R$ {cashierStats?.totalRevenue.toFixed(2)}</div>
+                                    </div>
+
+                                    <div className="bg-emerald-900/20 p-6 rounded-[30px] border border-emerald-500/20 relative overflow-hidden group hover:border-emerald-500/40 transition-all">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl text-emerald-500">💵</div>
+                                        <div className="text-emerald-400 text-[10px] uppercase font-black mb-2 tracking-widest">Saldo em Dinheiro</div>
+                                        <div className="text-2xl font-bold text-emerald-100 serif">R$ {cashierStats?.currentDrawerBalance.toFixed(2)}</div>
+                                    </div>
+
+                                    <div className="bg-red-900 p-6 rounded-[30px] border border-white/5 relative overflow-hidden group hover:border-gold/30 transition-all">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl">💳</div>
+                                        <div className="text-gold text-[10px] uppercase font-black mb-2 tracking-widest">Vendas Digitais</div>
+                                        <div className="text-2xl font-bold text-white serif">R$ {cashierStats?.digitalSales.toFixed(2)}</div>
+                                    </div>
+
+                                    <div className="bg-red-950 p-6 rounded-[30px] border border-red-500/20 relative overflow-hidden group hover:border-red-500/40 transition-all">
+                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl text-red-500">📉</div>
+                                        <div className="text-red-400 text-[10px] uppercase font-black mb-2 tracking-widest">Saídas / Despesas</div>
+                                        <div className="text-2xl font-bold text-red-300 serif">R$ {cashierStats?.totalExpenses.toFixed(2)}</div>
+                                    </div>
+                                </div>
+                                
+                                {/* Histórico Detalhado */}
+                                <div className="space-y-4">
+                                     <h4 className="text-xl font-bold serif text-white px-2">Extrato da Sessão</h4>
+                                     <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left">
+                                                <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
+                                                    <tr>
+                                                        <th className="px-6 py-4">Horário</th>
+                                                        <th className="px-6 py-4">Operação</th>
+                                                        <th className="px-6 py-4">Detalhes</th>
+                                                        <th className="px-6 py-4">Método</th>
+                                                        <th className="px-6 py-4 text-right">Valor</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-white/5">
+                                                    {cashierOperations.map((op, idx) => (
+                                                        <tr key={op.id} className="hover:bg-white/5 transition-colors">
+                                                            <td className="px-6 py-4 font-mono text-xs text-red-200">{new Date(op.time).toLocaleTimeString()}</td>
+                                                            <td className="px-6 py-4">
+                                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase border ${
+                                                                    op.type === 'ENTRADA' 
+                                                                    ? op.category === 'Abertura' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                                                    : 'bg-red-500/10 text-red-400 border-red-500/20'
+                                                                }`}>
+                                                                    {op.category}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-sm font-bold text-white">{op.description}</td>
+                                                            <td className="px-6 py-4 text-[10px] font-black uppercase text-red-300">{op.method}</td>
+                                                            <td className={`px-6 py-4 text-right font-bold font-mono ${op.type === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
+                                                                {op.type === 'SAIDA' ? '-' : '+'} R$ {op.amount.toFixed(2)}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {cashierOperations.length === 0 && (
+                                                        <tr><td colSpan={5} className="text-center py-12 text-red-400 italic">Nenhuma movimentação registrada nesta sessão.</td></tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                     </div>
+                                </div>
+                             </>
+                         )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default function App() {
+  const [mode, setMode] = useState<AppMode>(AppMode.VIEW);
+  const [items, setItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [currentSession, setCurrentSession] = useState<CashierSession | undefined>(undefined);
+  const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [footerData, setFooterData] = useState<FooterData>(DEFAULT_FOOTER);
+  const [loading, setLoading] = useState(true);
+
+  // Modal states
+  const [isOpeningCashier, setIsOpeningCashier] = useState(false);
+  const [isClosingCashier, setIsClosingCashier] = useState(false);
+  const [isQuickSaleOpen, setIsQuickSaleOpen] = useState(false);
+  const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+  
+  // Table Interaction states
+  const [activeTableId, setActiveTableId] = useState<number | null>(null);
+  const [namingTableId, setNamingTableId] = useState<number | null>(null);
+  const [paymentTable, setPaymentTable] = useState<Table | null>(null);
+  const [isItemSelectorOpen, setIsItemSelectorOpen] = useState(false);
+  
+  // Admin states
+  const [adminTab, setAdminTab] = useState<'menu' | 'categories' | 'stock' | 'footer' | 'caixa'>('menu');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>('Todos');
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    const data = await dbService.fetchAllData();
+    setItems(data.menu);
+    setCategories(data.categories);
+    setTables(data.tables.length > 0 ? data.tables : Array.from({length: TOTAL_TABLES}, (_, i) => ({ id: i + 1, isActive: false, items: [] })));
+    
+    // Find open session
+    const openSession = data.cashierHistory.find((s: any) => s.status === 'OPEN');
+    setCurrentSession(openSession);
+    
+    setDailyRecords(data.dailyRecords);
+    setExpenses(data.expenses);
+    if(data.footerData) setFooterData(data.footerData);
+    
+    setLoading(false);
   };
 
+  const handleOpenCashier = async (balance: number) => {
+      const newSession: CashierSession = {
+          id: crypto.randomUUID(),
+          openedAt: Date.now(),
+          openingBalance: balance,
+          status: 'OPEN'
+      };
+      await dbService.createSession(newSession);
+      setCurrentSession(newSession);
+      setIsOpeningCashier(false);
+  };
+
+  const handleCloseCashier = async (balance: number) => {
+      if(!currentSession) return;
+      await dbService.closeSession(currentSession.id, Date.now(), balance);
+      setCurrentSession(undefined);
+      setIsClosingCashier(false);
+  };
+
+  const handleQuickSale = async (cart: TableItem[], paymentMethod: string) => {
+      if(!currentSession) return alert("Caixa fechado!");
+      
+      const total = cart.reduce((a, b) => a + (b.price * b.quantity), 0);
+      const record: DailyRecord = {
+          id: crypto.randomUUID(),
+          tableId: 0,
+          customerName: "Venda Rápida",
+          openedAt: Date.now(),
+          closedAt: Date.now(),
+          items: cart,
+          total,
+          paymentMethod,
+          sessionId: currentSession.id
+      };
+      
+      await dbService.addDailyRecord(record);
+      setDailyRecords(prev => [record, ...prev]);
+      
+      // Update Stock
+      for(const cartItem of cart) {
+          const item = items.find(i => i.id === cartItem.menuItemId);
+          if(item) {
+              const newStock = Math.max(0, item.stock - cartItem.quantity);
+              await dbService.updateStock(item.id, newStock);
+              setItems(prev => prev.map(i => i.id === item.id ? {...i, stock: newStock} : i));
+          }
+      }
+      
+      setIsQuickSaleOpen(false);
+  };
+
+  const handleExpense = async (expData: { description: string; amount: number; category: string; }) => {
+      if(!currentSession) return alert("Caixa fechado!");
+      const newExp: Expense = {
+          id: crypto.randomUUID(),
+          ...expData,
+          timestamp: Date.now(),
+          sessionId: currentSession.id
+      };
+      await dbService.addExpense(newExp);
+      setExpenses(prev => [newExp, ...prev]);
+      setIsExpenseOpen(false);
+  };
+
+  const handleUpdateTable = async (updatedTable: Table) => {
+      await dbService.updateTable(updatedTable);
+      setTables(prev => prev.map(t => t.id === updatedTable.id ? updatedTable : t));
+  };
+  
+  const handleUpdateTableItem = (tableId: number, itemId: string, delta: number) => {
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
+
+    let newItems = [...table.items];
+    const itemIndex = newItems.findIndex(i => i.menuItemId === itemId);
+
+    if (itemIndex >= 0) {
+      newItems[itemIndex].quantity += delta;
+      if (newItems[itemIndex].quantity <= 0) {
+        newItems.splice(itemIndex, 1);
+      }
+    }
+    
+    // Auto-active check
+    const isActive = newItems.length > 0;
+    
+    handleUpdateTable({ ...table, items: newItems, isActive, customerName: isActive ? table.customerName : undefined, openedAt: isActive ? table.openedAt : undefined });
+  };
+
+  const handleAddItemToTable = (tableId: number, menuItem: MenuItem) => {
+      const table = tables.find(t => t.id === tableId);
+      if(!table) return;
+      
+      let newItems = [...table.items];
+      const existing = newItems.find(i => i.menuItemId === menuItem.id);
+      
+      if(existing) {
+          existing.quantity += 1;
+      } else {
+          newItems.push({
+              menuItemId: menuItem.id,
+              name: menuItem.name,
+              price: menuItem.price,
+              quantity: 1
+          });
+      }
+      
+      handleUpdateTable({ 
+          ...table, 
+          items: newItems, 
+          isActive: true, 
+          openedAt: table.isActive ? table.openedAt : Date.now(),
+          customerName: table.customerName || `Mesa ${tableId}`
+      });
+  };
+
+  const handleTablePayment = async (table: Table, method: string) => {
+       if(!currentSession) return alert("Caixa fechado!");
+       const total = table.items.reduce((a, b) => a + (b.price * b.quantity), 0);
+       
+       const record: DailyRecord = {
+          id: crypto.randomUUID(),
+          tableId: table.id,
+          customerName: table.customerName,
+          openedAt: table.openedAt || Date.now(),
+          closedAt: Date.now(),
+          items: table.items,
+          total,
+          paymentMethod: method,
+          sessionId: currentSession.id
+       };
+       
+       await dbService.addDailyRecord(record);
+       setDailyRecords(prev => [record, ...prev]);
+       
+       // Update stock
+       for(const tItem of table.items) {
+          const item = items.find(i => i.id === tItem.menuItemId);
+          if(item) {
+              const newStock = Math.max(0, item.stock - tItem.quantity);
+              await dbService.updateStock(item.id, newStock);
+              setItems(prev => prev.map(i => i.id === item.id ? {...i, stock: newStock} : i));
+          }
+       }
+       
+       // Reset table
+       handleUpdateTable({ ...table, isActive: false, items: [], customerName: undefined, openedAt: undefined });
+       setPaymentTable(null);
+  };
+  
+  // Admin Handlers
+  const handleUpdateItem = async (item: MenuItem) => {
+      await dbService.upsertMenuItem(item);
+      setItems(prev => prev.map(i => i.id === item.id ? item : i));
+  };
+  
+  const handleAddCategory = async (name: string) => {
+      if(categories.includes(name)) return;
+      await dbService.addCategory(name);
+      setCategories(prev => [...prev, name]);
+  };
+  
+  const handleRemoveCategory = async (name: string) => {
+      await dbService.removeCategory(name);
+      setCategories(prev => prev.filter(c => c !== name));
+  };
+  
+  const handleUpdateStock = async (id: string, stock: number) => {
+      await dbService.updateStock(id, stock);
+      setItems(prev => prev.map(i => i.id === id ? {...i, stock} : i));
+  };
+  
+  const handleAddNewItem = () => {
+      const newItem: MenuItem = {
+          id: crypto.randomUUID(),
+          name: "Novo Prato",
+          description: "Descrição...",
+          price: 0,
+          category: categories[0] || "Geral",
+          isAvailable: true,
+          stock: 0
+      };
+      setItems(prev => [...prev, newItem]);
+      setEditingItemId(newItem.id);
+  };
+  
+  const handleUpdateFooter = async (data: FooterData) => {
+      await dbService.saveFooterData(data);
+      setFooterData(data);
+  };
+
+  if (loading) return <LoadingOverlay />;
+
   return (
-    <div className="animate-fade-in">
-      <div className="flex flex-wrap gap-2 justify-center mb-12 bg-red-800/50 p-2 rounded-3xl border border-white/5 w-fit mx-auto">
-        {['menu', 'categories', 'caixa', 'stock', 'footer'].map(t => (
-          <button key={t} onClick={() => setAdminTab(t as 'menu' | 'categories' | 'stock' | 'footer' | 'caixa')} className={`px-5 py-2 rounded-2xl text-[9px] font-black uppercase transition-all ${adminTab === t ? 'bg-gold text-black' : 'text-red-400'}`}>{t}</button>
-        ))}
-      </div>
-      <div className="max-w-4xl mx-auto">
-        {renderContent()}
-      </div>
+    <div className="min-h-screen bg-red-950 text-red-50 font-sans selection:bg-gold selection:text-black flex flex-col">
+       <Navbar 
+         mode={mode} 
+         setMode={setMode} 
+         isCashierOpen={!!currentSession} 
+         onToggleCashier={() => currentSession ? setIsClosingCashier(true) : setIsOpeningCashier(true)}
+         onOpenQuickSale={() => setIsQuickSaleOpen(true)}
+         onOpenExpense={() => setIsExpenseOpen(true)}
+       />
+       
+       <main className="flex-grow overflow-hidden relative">
+          {mode === AppMode.VIEW && (
+             <MenuView 
+                items={items} 
+                categories={categories} 
+                activeCategory={activeCategory} 
+                setActiveCategory={setActiveCategory}
+                onAdd={() => {}} 
+                activeTableId={null} 
+             />
+          )}
+          
+          {mode === AppMode.TABLES && (
+             <DigitalComanda 
+                tables={tables}
+                activeTableId={activeTableId}
+                onSelectTable={setActiveTableId}
+                onOpenNaming={setNamingTableId}
+                onOpenItemSelector={() => setIsItemSelectorOpen(true)}
+                onOpenPayment={setPaymentTable}
+                onUpdateQty={handleUpdateTableItem}
+             />
+          )}
+
+          {mode === AppMode.ADMIN && (
+             <AdminPanel 
+               items={items}
+               categories={categories}
+               currentSession={currentSession}
+               dailyRecords={dailyRecords}
+               expenses={expenses}
+               adminTab={adminTab}
+               setAdminTab={setAdminTab}
+               setEditingItemId={setEditingItemId}
+               handleUpdateItem={handleUpdateItem}
+               handleAddCategory={handleAddCategory}
+               handleRemoveCategory={handleRemoveCategory}
+               handleUpdateStock={handleUpdateStock}
+               handleAddNewItem={handleAddNewItem}
+               footerData={footerData}
+               setFooterData={handleUpdateFooter}
+               onOpenCashierClick={() => setIsOpeningCashier(true)}
+               onCloseCashierClick={() => setIsClosingCashier(true)}
+             />
+          )}
+       </main>
+
+       {/* Modals Render Logic */}
+       {isOpeningCashier && <OpenCashierModal onConfirm={handleOpenCashier} onClose={() => setIsOpeningCashier(false)} />}
+       {isClosingCashier && currentSession && <CloseCashierModal session={currentSession} records={dailyRecords} expenses={expenses} onConfirm={handleCloseCashier} onClose={() => setIsClosingCashier(false)} />}
+       {isQuickSaleOpen && <QuickSaleModal items={items} onClose={() => setIsQuickSaleOpen(false)} onFinishSale={handleQuickSale} />}
+       {isExpenseOpen && <ExpenseModal onSave={handleExpense} onClose={() => setIsExpenseOpen(false)} />}
+       
+       {paymentTable && (
+         <PaymentModal 
+            title={`Mesa ${paymentTable.id}`} 
+            total={paymentTable.items.reduce((acc, i) => acc + (i.price * i.quantity), 0)} 
+            customerName={paymentTable.customerName}
+            onConfirm={(method) => handleTablePayment(paymentTable, method)}
+            onClose={() => setPaymentTable(null)}
+         />
+       )}
+       
+       {namingTableId && (
+          <CustomerNameModal 
+            initialName={tables.find(t => t.id === namingTableId)?.customerName || ""} 
+            onSave={(name) => {
+                const t = tables.find(t => t.id === namingTableId);
+                if(t) handleUpdateTable({...t, customerName: name, isActive: true, openedAt: t.openedAt || Date.now()});
+                setNamingTableId(null);
+            }}
+            onClose={() => setNamingTableId(null)}
+          />
+       )}
+       
+       {isItemSelectorOpen && activeTableId && (
+          <ItemSelectorModal 
+             items={items}
+             onAddItem={(item) => handleAddItemToTable(activeTableId, item)}
+             onClose={() => setIsItemSelectorOpen(false)}
+          />
+       )}
+       
+       {editingItemId && (
+          <EditItemModal 
+             item={items.find(i => i.id === editingItemId)!} 
+             categories={categories}
+             onSave={(updated) => { handleUpdateItem(updated); setEditingItemId(null); }}
+             onClose={() => setEditingItemId(null)}
+          />
+       )}
     </div>
   );
-};
-
-const Footer = ({ data }: { data: FooterData }) => (
-  <footer className="bg-red-900 border-t border-white/10 pt-20 pb-10 px-6 mt-20">
-    <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-16 mb-20">
-      <div>
-        <h4 className="text-2xl font-bold serif mb-6">{data.brandName}</h4>
-        <p className="text-red-400 text-sm leading-relaxed italic">{data.description}</p>
-      </div>
-      <div>
-        <h5 className="text-gold text-[10px] font-black uppercase tracking-widest mb-6">Localização</h5>
-        <p className="text-red-200 text-sm whitespace-pre-line">{data.location}</p>
-      </div>
-      <div>
-        <h5 className="text-gold text-[10px] font-black uppercase tracking-widest mb-6">Atendimento</h5>
-        <p className="text-red-200 text-sm whitespace-pre-line">{data.hours}</p>
-      </div>
-    </div>
-    <p className="text-center pt-10 border-t border-white/5 text-red-300 text-[9px] font-black uppercase tracking-[0.4em]">{data.copyright}</p>
-  </footer>
-);
+}
