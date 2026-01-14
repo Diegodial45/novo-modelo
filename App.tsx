@@ -95,6 +95,7 @@ interface MenuViewProps {
 interface AdminPanelProps {
     items: MenuItem[];
     categories: string[];
+    sessions: CashierSession[]; // Added sessions prop
     currentSession: CashierSession | undefined;
     dailyRecords: DailyRecord[];
     expenses: Expense[];
@@ -635,7 +636,11 @@ const MenuView = ({ items, categories, activeCategory, setActiveCategory, onAdd,
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto custom-scrollbar flex-grow pb-20">
                 {filtered.map(item => (
-                    <div key={item.id} className="bg-red-900/30 border border-white/5 rounded-[30px] overflow-hidden group hover:border-gold/30 transition-all flex flex-col">
+                    <div 
+                        key={item.id} 
+                        onClick={() => onAdd(item)}
+                        className="bg-red-900/30 border border-white/5 rounded-[30px] overflow-hidden group hover:border-gold/30 transition-all flex flex-col cursor-pointer"
+                    >
                         <div className="h-48 overflow-hidden relative">
                             <img src={item.imageUrl || `https://ui-avatars.com/api/?name=${item.name}&background=random`} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                             <div className="absolute inset-0 bg-gradient-to-t from-red-950 to-transparent opacity-80"></div>
@@ -646,9 +651,12 @@ const MenuView = ({ items, categories, activeCategory, setActiveCategory, onAdd,
                         </div>
                         <div className="p-5 flex justify-between items-center mt-auto bg-white/5">
                             <span className="text-2xl font-bold text-gold serif">R$ {item.price.toFixed(2)}</span>
-                            {activeTableId && (
-                                <button onClick={() => onAdd(item)} className="bg-gold text-black w-10 h-10 rounded-full flex items-center justify-center hover:scale-110 transition-transform font-bold text-xl shadow-lg">+</button>
-                            )}
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAdd(item); }} 
+                                className="bg-gold text-black w-10 h-10 rounded-full flex items-center justify-center hover:scale-110 transition-transform font-bold text-xl shadow-lg"
+                            >
+                                {activeTableId ? '+' : '➜'}
+                            </button>
                         </div>
                     </div>
                 ))}
@@ -743,8 +751,11 @@ const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, on
     );
 };
 
-const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation }: AdminPanelProps) => {
+const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation }: AdminPanelProps) => {
     
+    // Add History View Toggle
+    const [viewHistory, setViewHistory] = useState(false);
+
     // Logic for Cashier Timeline/Extraction
     const cashierStats = useMemo(() => {
         if (!currentSession) return null;
@@ -891,124 +902,166 @@ const AdminPanel = ({ items, categories, dailyRecords, expenses, adminTab, setAd
 
                 {adminTab === 'caixa' && (
                     <div className="space-y-6">
-                         {!currentSession ? (
-                            <div className="bg-red-900 p-16 rounded-[40px] border-2 border-white/5 text-center flex flex-col items-center justify-center">
-                                <div className="w-20 h-20 rounded-full bg-red-800 shadow-xl shadow-red-950/50 mb-6 flex items-center justify-center border-4 border-red-950">
-                                    <span className="text-4xl opacity-50">🔒</span>
+                        <div className="flex justify-between items-center mb-4">
+                             <div className="flex gap-2">
+                                 <button onClick={() => setViewHistory(false)} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase ${!viewHistory ? 'bg-gold text-black' : 'bg-white/5 text-red-300'}`}>Caixa Atual</button>
+                                 <button onClick={() => setViewHistory(true)} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase ${viewHistory ? 'bg-gold text-black' : 'bg-white/5 text-red-300'}`}>📜 Histórico de Caixas</button>
+                             </div>
+                        </div>
+
+                        {viewHistory ? (
+                             <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
+                                            <tr>
+                                                <th className="px-6 py-4">Data Abertura</th>
+                                                <th className="px-6 py-4">Data Fechamento</th>
+                                                <th className="px-6 py-4 text-right">Saldo Inicial</th>
+                                                <th className="px-6 py-4 text-right">Saldo Final</th>
+                                                <th className="px-6 py-4 text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {sessions.map(session => (
+                                                <tr key={session.id} className="hover:bg-white/5 transition-colors">
+                                                    <td className="px-6 py-4 font-mono text-xs text-white">{new Date(session.openedAt).toLocaleString()}</td>
+                                                    <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
+                                                    <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {session.openingBalance.toFixed(2)}</td>
+                                                    <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance !== undefined ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                            {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <h3 className="text-3xl font-bold text-white serif mb-2">Caixa Fechado</h3>
-                                <p className="text-red-300 mb-8 max-w-xs text-sm">Abra o caixa para ver o painel financeiro.</p>
-                                <button onClick={onOpenCashierClick} className="px-10 py-4 rounded-full bg-emerald-600 text-white font-bold uppercase tracking-widest hover:scale-105 transition-all shadow-lg">
-                                    Abrir Caixa
-                                </button>
-                            </div>
-                         ) : (
+                             </div>
+                        ) : (
                              <>
-                                <header className="flex flex-col md:flex-row justify-between items-center bg-red-900/50 p-6 rounded-[30px] border border-white/5 mb-6">
-                                    <div>
-                                        <div className="flex items-center gap-3 mb-1">
-                                            <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
-                                            <h3 className="text-2xl font-bold text-white serif">Caixa Aberto</h3>
+                                 {!currentSession ? (
+                                    <div className="bg-red-900 p-16 rounded-[40px] border-2 border-white/5 text-center flex flex-col items-center justify-center">
+                                        <div className="w-20 h-20 rounded-full bg-red-800 shadow-xl shadow-red-950/50 mb-6 flex items-center justify-center border-4 border-red-950">
+                                            <span className="text-4xl opacity-50">🔒</span>
                                         </div>
-                                        <div className="text-red-300 text-xs uppercase tracking-widest font-black">Iniciado às {new Date(currentSession.openedAt).toLocaleTimeString()}</div>
-                                    </div>
-                                    <button onClick={onCloseCashierClick} className="mt-4 md:mt-0 px-6 py-3 bg-red-600/20 text-red-200 border border-red-500/30 rounded-full font-black text-[10px] uppercase hover:bg-red-600 hover:text-white transition-all">
-                                        Encerrar Turno / Fechar Caixa
-                                    </button>
-                                </header>
-
-                                {/* Dashboard de KPIs */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                                    <div className="bg-red-900 p-6 rounded-[30px] border border-white/5 relative overflow-hidden group hover:border-gold/30 transition-all">
-                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl">💰</div>
-                                        <div className="text-red-400 text-[10px] uppercase font-black mb-2 tracking-widest">Faturamento Total</div>
-                                        <div className="text-2xl font-bold text-white serif">R$ {cashierStats?.totalRevenue.toFixed(2)}</div>
-                                    </div>
-
-                                    <div className="bg-emerald-900/20 p-6 rounded-[30px] border border-emerald-500/20 relative overflow-hidden group hover:border-emerald-500/40 transition-all">
-                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl text-emerald-500">💵</div>
-                                        <div className="text-emerald-400 text-[10px] uppercase font-black mb-2 tracking-widest">Saldo em Dinheiro</div>
-                                        <div className="text-2xl font-bold text-emerald-100 serif">R$ {cashierStats?.currentDrawerBalance.toFixed(2)}</div>
-                                    </div>
-
-                                    <div className="bg-red-900 p-6 rounded-[30px] border border-white/5 relative overflow-hidden group hover:border-gold/30 transition-all">
-                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl">💳</div>
-                                        <div className="text-gold text-[10px] uppercase font-black mb-2 tracking-widest">Vendas Digitais</div>
-                                        <div className="text-2xl font-bold text-white serif">R$ {cashierStats?.digitalSales.toFixed(2)}</div>
-                                    </div>
-
-                                    <div className="bg-red-950 p-6 rounded-[30px] border border-red-500/20 relative overflow-hidden group hover:border-red-500/40 transition-all">
-                                        <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl text-red-500">📉</div>
-                                        <div className="text-red-400 text-[10px] uppercase font-black mb-2 tracking-widest">Saídas / Despesas</div>
-                                        <div className="text-2xl font-bold text-red-300 serif">R$ {cashierStats?.totalExpenses.toFixed(2)}</div>
-                                    </div>
-                                </div>
-                                
-                                {/* Histórico Detalhado */}
-                                <div className="space-y-4">
-                                     <div className="flex justify-between items-end px-2">
-                                        <h4 className="text-xl font-bold serif text-white">Extrato da Sessão</h4>
-                                        <button onClick={onOpenAddOperation} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase hover:bg-white/10 transition-all flex items-center gap-2">
-                                            <span>+</span> Adicionar Lançamento
+                                        <h3 className="text-3xl font-bold text-white serif mb-2">Caixa Fechado</h3>
+                                        <p className="text-red-300 mb-8 max-w-xs text-sm">Abra o caixa para ver o painel financeiro.</p>
+                                        <button onClick={onOpenCashierClick} className="px-10 py-4 rounded-full bg-emerald-600 text-white font-bold uppercase tracking-widest hover:scale-105 transition-all shadow-lg">
+                                            Abrir Caixa
                                         </button>
-                                     </div>
-                                     <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-left">
-                                                <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
-                                                    <tr>
-                                                        <th className="px-6 py-4">Horário</th>
-                                                        <th className="px-6 py-4">Operação</th>
-                                                        <th className="px-6 py-4">Detalhes</th>
-                                                        <th className="px-6 py-4">Método</th>
-                                                        <th className="px-6 py-4 text-right">Valor</th>
-                                                        <th className="px-6 py-4 text-center">Ações</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-white/5">
-                                                    {cashierOperations.map((op, idx) => (
-                                                        <tr key={op.id} className="hover:bg-white/5 transition-colors">
-                                                            <td className="px-6 py-4 font-mono text-xs text-red-200">{new Date(op.time).toLocaleTimeString()}</td>
-                                                            <td className="px-6 py-4">
-                                                                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase border ${
-                                                                    op.type === 'ENTRADA' 
-                                                                    ? op.category === 'Abertura' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                                                    : 'bg-red-500/10 text-red-400 border-red-500/20'
-                                                                }`}>
-                                                                    {op.category}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-6 py-4 text-sm font-bold text-white">{op.description}</td>
-                                                            <td className="px-6 py-4 text-[10px] font-black uppercase text-red-300">{op.method}</td>
-                                                            <td className={`px-6 py-4 text-right font-bold font-mono ${op.type === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                                {op.type === 'SAIDA' ? '-' : '+'} R$ {op.amount.toFixed(2)}
-                                                            </td>
-                                                            <td className="px-6 py-4 text-center">
-                                                                {op.category !== 'Abertura' && (
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            if(confirm('Tem certeza que deseja excluir este registro?')) {
-                                                                                onDeleteOperation(op.id, op.type as 'ENTRADA' | 'SAIDA');
-                                                                            }
-                                                                        }} 
-                                                                        className="w-8 h-8 rounded-full bg-red-950 text-red-400 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center text-xs"
-                                                                    >
-                                                                        🗑️
-                                                                    </button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                    {cashierOperations.length === 0 && (
-                                                        <tr><td colSpan={6} className="text-center py-12 text-red-400 italic">Nenhuma movimentação registrada nesta sessão.</td></tr>
-                                                    )}
-                                                </tbody>
-                                            </table>
+                                    </div>
+                                 ) : (
+                                     <>
+                                        <header className="flex flex-col md:flex-row justify-between items-center bg-red-900/50 p-6 rounded-[30px] border border-white/5 mb-6">
+                                            <div>
+                                                <div className="flex items-center gap-3 mb-1">
+                                                    <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                                                    <h3 className="text-2xl font-bold text-white serif">Caixa Aberto</h3>
+                                                </div>
+                                                <div className="text-red-300 text-xs uppercase tracking-widest font-black">Iniciado às {new Date(currentSession.openedAt).toLocaleTimeString()}</div>
+                                            </div>
+                                            <button onClick={onCloseCashierClick} className="mt-4 md:mt-0 px-6 py-3 bg-red-600/20 text-red-200 border border-red-500/30 rounded-full font-black text-[10px] uppercase hover:bg-red-600 hover:text-white transition-all">
+                                                Encerrar Turno / Fechar Caixa
+                                            </button>
+                                        </header>
+
+                                        {/* Dashboard de KPIs */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                                            <div className="bg-red-900 p-6 rounded-[30px] border border-white/5 relative overflow-hidden group hover:border-gold/30 transition-all">
+                                                <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl">💰</div>
+                                                <div className="text-red-400 text-[10px] uppercase font-black mb-2 tracking-widest">Faturamento Total</div>
+                                                <div className="text-2xl font-bold text-white serif">R$ {cashierStats?.totalRevenue.toFixed(2)}</div>
+                                            </div>
+
+                                            <div className="bg-emerald-900/20 p-6 rounded-[30px] border border-emerald-500/20 relative overflow-hidden group hover:border-emerald-500/40 transition-all">
+                                                <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl text-emerald-500">💵</div>
+                                                <div className="text-emerald-400 text-[10px] uppercase font-black mb-2 tracking-widest">Saldo em Dinheiro</div>
+                                                <div className="text-2xl font-bold text-emerald-100 serif">R$ {cashierStats?.currentDrawerBalance.toFixed(2)}</div>
+                                            </div>
+
+                                            <div className="bg-red-900 p-6 rounded-[30px] border border-white/5 relative overflow-hidden group hover:border-gold/30 transition-all">
+                                                <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl">💳</div>
+                                                <div className="text-gold text-[10px] uppercase font-black mb-2 tracking-widest">Vendas Digitais</div>
+                                                <div className="text-2xl font-bold text-white serif">R$ {cashierStats?.digitalSales.toFixed(2)}</div>
+                                            </div>
+
+                                            <div className="bg-red-950 p-6 rounded-[30px] border border-red-500/20 relative overflow-hidden group hover:border-red-500/40 transition-all">
+                                                <div className="absolute top-0 right-0 p-4 opacity-10 text-5xl text-red-500">📉</div>
+                                                <div className="text-red-400 text-[10px] uppercase font-black mb-2 tracking-widest">Saídas / Despesas</div>
+                                                <div className="text-2xl font-bold text-red-300 serif">R$ {cashierStats?.totalExpenses.toFixed(2)}</div>
+                                            </div>
                                         </div>
-                                     </div>
-                                </div>
+                                        
+                                        {/* Histórico Detalhado */}
+                                        <div className="space-y-4">
+                                             <div className="flex justify-between items-end px-2">
+                                                <h4 className="text-xl font-bold serif text-white">Extrato da Sessão</h4>
+                                                <button onClick={onOpenAddOperation} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase hover:bg-white/10 transition-all flex items-center gap-2">
+                                                    <span>+</span> Adicionar Lançamento
+                                                </button>
+                                             </div>
+                                             <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
+                                                            <tr>
+                                                                <th className="px-6 py-4">Horário</th>
+                                                                <th className="px-6 py-4">Operação</th>
+                                                                <th className="px-6 py-4">Detalhes</th>
+                                                                <th className="px-6 py-4">Método</th>
+                                                                <th className="px-6 py-4 text-right">Valor</th>
+                                                                <th className="px-6 py-4 text-center">Ações</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-white/5">
+                                                            {cashierOperations.map((op, idx) => (
+                                                                <tr key={op.id} className="hover:bg-white/5 transition-colors">
+                                                                    <td className="px-6 py-4 font-mono text-xs text-red-200">{new Date(op.time).toLocaleTimeString()}</td>
+                                                                    <td className="px-6 py-4">
+                                                                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase border ${
+                                                                            op.type === 'ENTRADA' 
+                                                                            ? op.category === 'Abertura' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                                                            : 'bg-red-500/10 text-red-400 border-red-500/20'
+                                                                        }`}>
+                                                                            {op.category}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-sm font-bold text-white">{op.description}</td>
+                                                                    <td className="px-6 py-4 text-[10px] font-black uppercase text-red-300">{op.method}</td>
+                                                                    <td className={`px-6 py-4 text-right font-bold font-mono ${op.type === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
+                                                                        {op.type === 'SAIDA' ? '-' : '+'} R$ {op.amount.toFixed(2)}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-center">
+                                                                        {op.category !== 'Abertura' && (
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    if(confirm('Tem certeza que deseja excluir este registro?')) {
+                                                                                        onDeleteOperation(op.id, op.type as 'ENTRADA' | 'SAIDA');
+                                                                                    }
+                                                                                }} 
+                                                                                className="w-8 h-8 rounded-full bg-red-950 text-red-400 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center text-xs"
+                                                                            >
+                                                                                🗑️
+                                                                            </button>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                            {cashierOperations.length === 0 && (
+                                                                <tr><td colSpan={6} className="text-center py-12 text-red-400 italic">Nenhuma movimentação registrada nesta sessão.</td></tr>
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                             </div>
+                                        </div>
+                                     </>
+                                 )}
                              </>
-                         )}
+                        )}
                     </div>
                 )}
             </div>
@@ -1026,6 +1079,12 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [footerData, setFooterData] = useState<FooterData>(DEFAULT_FOOTER);
   const [loading, setLoading] = useState(true);
+  
+  // Stores the full list of sessions
+  const [sessions, setSessions] = useState<CashierSession[]>([]);
+
+  // Add state for quick sale item
+  const [quickSaleInitialItem, setQuickSaleInitialItem] = useState<MenuItem | undefined>(undefined);
 
   // Modal states
   const [isOpeningCashier, setIsOpeningCashier] = useState(false);
@@ -1056,6 +1115,9 @@ export default function App() {
     setCategories(data.categories);
     setTables(data.tables.length > 0 ? data.tables : Array.from({length: TOTAL_TABLES}, (_, i) => ({ id: i + 1, isActive: false, items: [] })));
     
+    // Set all history
+    setSessions(data.cashierHistory);
+
     // Find open session
     const openSession = data.cashierHistory.find((s: any) => s.status === 'OPEN');
     setCurrentSession(openSession);
@@ -1076,12 +1138,18 @@ export default function App() {
       };
       await dbService.createSession(newSession);
       setCurrentSession(newSession);
+      setSessions(prev => [newSession, ...prev]);
       setIsOpeningCashier(false);
   };
 
   const handleCloseCashier = async (balance: number) => {
       if(!currentSession) return;
-      await dbService.closeSession(currentSession.id, Date.now(), balance);
+      const closedAt = Date.now();
+      await dbService.closeSession(currentSession.id, closedAt, balance);
+      
+      // Update local state
+      setSessions(prev => prev.map(s => s.id === currentSession.id ? { ...s, status: 'CLOSED', closedAt, closingBalance: balance } : s));
+      
       setCurrentSession(undefined);
       setIsClosingCashier(false);
   };
@@ -1322,7 +1390,10 @@ export default function App() {
                 categories={categories} 
                 activeCategory={activeCategory} 
                 setActiveCategory={setActiveCategory}
-                onAdd={() => {}} 
+                onAdd={(item) => {
+                    setQuickSaleInitialItem(item);
+                    setIsQuickSaleOpen(true);
+                }} 
                 activeTableId={null} 
              />
           )}
@@ -1343,6 +1414,7 @@ export default function App() {
              <AdminPanel 
                items={items}
                categories={categories}
+               sessions={sessions}
                currentSession={currentSession}
                dailyRecords={dailyRecords}
                expenses={expenses}
@@ -1367,7 +1439,7 @@ export default function App() {
        {/* Modals Render Logic */}
        {isOpeningCashier && <OpenCashierModal onConfirm={handleOpenCashier} onClose={() => setIsOpeningCashier(false)} />}
        {isClosingCashier && currentSession && <CloseCashierModal session={currentSession} records={dailyRecords} expenses={expenses} onConfirm={handleCloseCashier} onClose={() => setIsClosingCashier(false)} />}
-       {isQuickSaleOpen && <QuickSaleModal items={items} onClose={() => setIsQuickSaleOpen(false)} onFinishSale={handleQuickSale} />}
+       {isQuickSaleOpen && <QuickSaleModal items={items} initialItem={quickSaleInitialItem} onClose={() => { setIsQuickSaleOpen(false); setQuickSaleInitialItem(undefined); }} onFinishSale={handleQuickSale} />}
        {isExpenseOpen && <ExpenseModal onSave={handleExpense} onClose={() => setIsExpenseOpen(false)} />}
        {isAddOperationOpen && <AddOperationModal onSave={handleManualOperation} onClose={() => setIsAddOperationOpen(false)} />}
        
