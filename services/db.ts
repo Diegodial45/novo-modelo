@@ -58,6 +58,7 @@ export const dbService = {
         name: m.name,
         description: m.description,
         price: m.price,
+        costPrice: m.cost_price || 0, // Mapeando preço de custo
         category: m.category,
         imageUrl: m.image_url || m.imageUrl, // Fallback para compatibilidade
         isAvailable: m.is_available ?? m.isAvailable,
@@ -109,6 +110,7 @@ export const dbService = {
       name: item.name,
       description: item.description,
       price: item.price,
+      cost_price: item.costPrice || 0, // Salvando preço de custo
       category: item.category,
       image_url: item.imageUrl,
       is_available: item.isAvailable,

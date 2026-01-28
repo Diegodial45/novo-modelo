@@ -4,6 +4,7 @@ export interface MenuItem {
   name: string;
   description: string;
   price: number;
+  costPrice?: number; // Preço de Custo
   category: string;
   imageUrl?: string;
   isAvailable: boolean;

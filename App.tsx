@@ -99,8 +99,8 @@ interface AdminPanelProps {
     currentSession: CashierSession | undefined;
     dailyRecords: DailyRecord[];
     expenses: Expense[];
-    adminTab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa';
-    setAdminTab: (tab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa') => void;
+    adminTab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios';
+    setAdminTab: (tab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios') => void;
     setEditingItemId: (id: string | null) => void;
     handleUpdateItem: (item: MenuItem) => void;
     handleAddCategory: (cat: string) => void;
@@ -515,12 +515,22 @@ const EditItemModal = ({ item, categories, onSave, onClose }: EditItemModalProps
           <input value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder-red-400/50" placeholder="Nome do Prato" />
           
           <div className="grid grid-cols-2 gap-4">
-            <input type="number" value={data.price} onChange={e => setData({...data, price: parseFloat(e.target.value) || 0})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Preço" />
-            <select value={data.category} onChange={e => setData({...data, category: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white">
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <div>
+               <label className="text-[9px] text-red-400 font-bold uppercase ml-2 mb-1 block">Preço de Venda</label>
+               <input type="number" value={data.price} onChange={e => setData({...data, price: parseFloat(e.target.value) || 0})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Preço Venda" />
+            </div>
+            <div>
+               <label className="text-[9px] text-red-400 font-bold uppercase ml-2 mb-1 block">Preço de Custo (Compra)</label>
+               <input type="number" value={data.costPrice || ''} onChange={e => setData({...data, costPrice: parseFloat(e.target.value) || 0})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Preço Custo" />
+            </div>
           </div>
           
+          <div className="grid grid-cols-1 gap-4">
+              <select value={data.category} onChange={e => setData({...data, category: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white">
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+          </div>
+
           <div className="relative">
             <textarea value={data.description} onChange={e => setData({...data, description: e.target.value})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white h-32 resize-none placeholder-red-400/50" placeholder="Descrição detalhada..." />
             <button onClick={handleEnhance} disabled={isEnhancing} className="absolute bottom-4 right-4 text-emerald-400 text-[10px] font-black uppercase flex items-center gap-2 bg-emerald-900/50 px-3 py-1 rounded-full border border-emerald-500/30 hover:bg-emerald-900 transition-colors disabled:opacity-50">
@@ -589,7 +599,7 @@ const Navbar = ({ mode, setMode, isCashierOpen, onToggleCashier, onOpenQuickSale
                 <button 
                     key={m} 
                     onClick={() => setMode(m)} 
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mode === m ? 'bg-gold text-black shadow-lg shadow-gold/20' : 'bg-white/5 text-red-200 hover:bg-white/10'}`}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${mode === m ? 'bg-gold text-black shadow-lg shadow-gold/20' : 'border border-gold/50 text-gold hover:bg-gold hover:text-black'}`}
                 >
                     {m === AppMode.VIEW ? 'Cardápio' : m === AppMode.TABLES ? 'Mesas' : 'Gestão'}
                 </button>
@@ -603,13 +613,13 @@ const Navbar = ({ mode, setMode, isCashierOpen, onToggleCashier, onOpenQuickSale
             {isCashierOpen ? 'Caixa Aberto' : 'Caixa Fechado'}
          </div>
          
-         <button onClick={onToggleCashier} className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase">
+         <button onClick={onToggleCashier} className="border border-gold/50 text-gold hover:bg-gold hover:text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-colors">
             {isCashierOpen ? 'Fechar Caixa' : 'Abrir Caixa'}
          </button>
 
          {isCashierOpen && (
              <>
-                <button onClick={onOpenExpense} className="bg-red-900/50 border border-red-500/30 text-red-300 px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-red-900 transition-colors">
+                <button onClick={onOpenExpense} className="bg-red-900/50 border border-gold/50 text-gold px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-gold/10 transition-colors">
                     Saída/Despesa
                 </button>
                 <button onClick={onOpenQuickSale} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-emerald-900/50 hover:scale-105 transition-transform">
@@ -628,9 +638,9 @@ const MenuView = ({ items, categories, activeCategory, setActiveCategory, onAdd,
     return (
         <div className="p-6 h-full overflow-hidden flex flex-col">
             <div className="flex gap-2 overflow-x-auto pb-4 custom-scrollbar mb-4">
-                <button onClick={() => setActiveCategory('Todos')} className={`px-6 py-3 rounded-2xl whitespace-nowrap text-[11px] font-black uppercase tracking-widest transition-all ${activeCategory === 'Todos' ? 'bg-gold text-black' : 'bg-red-900/50 text-red-200 border border-white/5'}`}>Todos</button>
+                <button onClick={() => setActiveCategory('Todos')} className={`px-6 py-3 rounded-2xl whitespace-nowrap text-[11px] font-black uppercase tracking-widest transition-all ${activeCategory === 'Todos' ? 'bg-gold text-black' : 'bg-red-900/50 text-gold border border-gold/30 hover:bg-gold hover:text-black'}`}>Todos</button>
                 {categories.map(c => (
-                    <button key={c} onClick={() => setActiveCategory(c)} className={`px-6 py-3 rounded-2xl whitespace-nowrap text-[11px] font-black uppercase tracking-widest transition-all ${activeCategory === c ? 'bg-gold text-black' : 'bg-red-900/50 text-red-200 border border-white/5'}`}>{c}</button>
+                    <button key={c} onClick={() => setActiveCategory(c)} className={`px-6 py-3 rounded-2xl whitespace-nowrap text-[11px] font-black uppercase tracking-widest transition-all ${activeCategory === c ? 'bg-gold text-black' : 'bg-red-900/50 text-gold border border-gold/30 hover:bg-gold hover:text-black'}`}>{c}</button>
                 ))}
             </div>
             
@@ -818,16 +828,72 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, admin
         return [...opening, ...sales, ...exps].sort((a, b) => b.time - a.time);
     }, [currentSession, dailyRecords, expenses]);
 
+    // Logic for Top Selling Products Report
+    const topProducts = useMemo(() => {
+        const stats: Record<string, { name: string; qty: number; total: number }> = {};
+        
+        dailyRecords.forEach(record => {
+            record.items.forEach(item => {
+                if (!stats[item.menuItemId]) {
+                    stats[item.menuItemId] = { name: item.name, qty: 0, total: 0 };
+                }
+                stats[item.menuItemId].qty += item.quantity;
+                stats[item.menuItemId].total += (item.price * item.quantity);
+            });
+        });
+
+        return Object.values(stats).sort((a, b) => b.qty - a.qty);
+    }, [dailyRecords]);
+
+    // Logic for Monthly Profit/Loss
+    const monthlyStats = useMemo(() => {
+      const stats: Record<string, { revenue: number; expenses: number; date: number }> = {};
+
+      const getKey = (ts: number) => {
+        const d = new Date(ts);
+        const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+        return `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      };
+
+      // Use a sortable key for ordering, but display name for UI
+      const getSortKey = (ts: number) => {
+          const d = new Date(ts);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      }
+
+      dailyRecords.forEach(r => {
+        const key = getKey(r.closedAt);
+        const sortKey = getSortKey(r.closedAt);
+        if (!stats[key]) stats[key] = { revenue: 0, expenses: 0, date: r.closedAt };
+        stats[key].revenue += r.total;
+      });
+
+      expenses.forEach(e => {
+        const key = getKey(e.timestamp);
+        if (!stats[key]) stats[key] = { revenue: 0, expenses: 0, date: e.timestamp };
+        stats[key].expenses += e.amount;
+      });
+
+      return Object.entries(stats)
+        .map(([key, data]) => ({
+            name: key,
+            ...data,
+            balance: data.revenue - data.expenses,
+            sortKey: getSortKey(data.date)
+        }))
+        .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+    }, [dailyRecords, expenses]);
+
     return (
         <div className="flex h-full flex-col">
-            <div className="flex border-b border-white/10 bg-red-900/20 px-6">
-                {['menu', 'categories', 'stock', 'footer', 'caixa'].map(t => (
+            <div className="flex border-b border-white/10 bg-red-900/20 px-6 overflow-x-auto no-scrollbar">
+                {['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa'].map(t => (
                     <button 
                         key={t}
                         onClick={() => setAdminTab(t as any)}
-                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-red-300 hover:text-white'}`}
+                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-gold/60 hover:text-gold hover:bg-white/5'}`}
                     >
-                        {t === 'caixa' ? 'Financeiro' : t.charAt(0).toUpperCase() + t.slice(1)}
+                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -876,18 +942,90 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, admin
 
                 {adminTab === 'stock' && (
                      <div className="space-y-4">
-                         <h3 className="text-2xl font-bold serif text-white mb-6">Controle de Estoque</h3>
-                         {items.map(item => (
-                             <div key={item.id} className="flex justify-between items-center bg-red-900/30 p-4 rounded-xl">
-                                 <span className="text-white font-bold">{item.name}</span>
-                                 <div className="flex items-center gap-3">
-                                     <button onClick={() => handleUpdateStock(item.id, Math.max(0, item.stock - 1))} className="w-8 h-8 rounded-lg bg-red-950 text-red-400 font-bold">-</button>
-                                     <span className={`font-mono font-bold w-12 text-center ${item.stock < 10 ? 'text-red-500' : 'text-emerald-400'}`}>{item.stock}</span>
-                                     <button onClick={() => handleUpdateStock(item.id, item.stock + 1)} className="w-8 h-8 rounded-lg bg-red-950 text-emerald-400 font-bold">+</button>
-                                 </div>
-                             </div>
-                         ))}
+                         <h3 className="text-2xl font-bold serif text-white mb-6">Controle de Estoque e Margem</h3>
+                         <div className="grid grid-cols-1 gap-4">
+                             {items.map(item => {
+                                 const cost = item.costPrice || 0;
+                                 const profit = item.price - cost;
+                                 const margin = item.price > 0 ? (profit / item.price) * 100 : 0;
+                                 
+                                 return (
+                                     <div key={item.id} className="bg-red-900/30 p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 border border-white/5">
+                                         <div className="flex items-center gap-4 min-w-[200px]">
+                                             <div className="w-12 h-12 rounded-lg bg-red-950 overflow-hidden"><img src={item.imageUrl} className="w-full h-full object-cover" alt="" /></div>
+                                             <div>
+                                                 <div className="font-bold text-white">{item.name}</div>
+                                                 <div className="text-[10px] text-red-300 uppercase font-black">{item.category}</div>
+                                             </div>
+                                         </div>
+                                         
+                                         <div className="flex gap-6 flex-grow justify-center md:justify-start">
+                                            <div className="text-center">
+                                                <div className="text-[9px] text-red-400 font-bold uppercase">Compra</div>
+                                                <div className="font-mono text-sm">R$ {cost.toFixed(2)}</div>
+                                            </div>
+                                            <div className="text-center">
+                                                <div className="text-[9px] text-emerald-400 font-bold uppercase">Venda</div>
+                                                <div className="font-mono text-sm">R$ {item.price.toFixed(2)}</div>
+                                            </div>
+                                            <div className="text-center">
+                                                <div className="text-[9px] text-gold font-bold uppercase">Margem</div>
+                                                <div className="font-mono text-sm font-bold text-gold">
+                                                    {margin.toFixed(0)}% <span className="text-[10px] text-white/50">(R${profit.toFixed(2)})</span>
+                                                </div>
+                                            </div>
+                                         </div>
+
+                                         <div className="flex items-center justify-center gap-3">
+                                             <button onClick={() => handleUpdateStock(item.id, Math.max(0, item.stock - 1))} className="w-8 h-8 rounded-lg bg-red-950 text-red-400 font-bold border border-white/5 hover:bg-red-900">-</button>
+                                             <div className="text-center">
+                                                 <div className="text-[9px] text-red-300 font-bold uppercase">Estoque</div>
+                                                 <span className={`font-mono font-bold w-12 text-center text-lg ${item.stock < 10 ? 'text-red-500' : 'text-emerald-400'}`}>{item.stock}</span>
+                                             </div>
+                                             <button onClick={() => handleUpdateStock(item.id, item.stock + 1)} className="w-8 h-8 rounded-lg bg-red-950 text-emerald-400 font-bold border border-white/5 hover:bg-emerald-900/20">+</button>
+                                         </div>
+                                     </div>
+                                 );
+                             })}
+                         </div>
                      </div>
+                )}
+                
+                {adminTab === 'relatorios' && (
+                    <div className="space-y-6">
+                        <h3 className="text-2xl font-bold serif text-white mb-6">Produtos Mais Vendidos</h3>
+                        <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
+                                        <tr>
+                                            <th className="px-6 py-4">Ranking</th>
+                                            <th className="px-6 py-4">Produto</th>
+                                            <th className="px-6 py-4 text-center">Qtd. Vendida</th>
+                                            <th className="px-6 py-4 text-right">Faturamento Gerado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {topProducts.map((prod, idx) => (
+                                            <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <span className={`font-black text-sm w-8 h-8 flex items-center justify-center rounded-full ${idx === 0 ? 'bg-gold text-black' : idx === 1 ? 'bg-gray-300 text-black' : idx === 2 ? 'bg-amber-700 text-white' : 'text-white/50 bg-white/5'}`}>
+                                                        {idx + 1}º
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 font-bold text-white text-lg">{prod.name}</td>
+                                                <td className="px-6 py-4 text-center font-mono text-white text-lg">{prod.qty}</td>
+                                                <td className="px-6 py-4 text-right font-mono text-emerald-400 font-bold">R$ {prod.total.toFixed(2)}</td>
+                                            </tr>
+                                        ))}
+                                        {topProducts.length === 0 && (
+                                            <tr><td colSpan={4} className="text-center py-12 text-red-400 italic">Nenhuma venda registrada ainda.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {adminTab === 'footer' && (
@@ -910,34 +1048,59 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, admin
                         </div>
 
                         {viewHistory ? (
-                             <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
-                                            <tr>
-                                                <th className="px-6 py-4">Data Abertura</th>
-                                                <th className="px-6 py-4">Data Fechamento</th>
-                                                <th className="px-6 py-4 text-right">Saldo Inicial</th>
-                                                <th className="px-6 py-4 text-right">Saldo Final</th>
-                                                <th className="px-6 py-4 text-center">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-white/5">
-                                            {sessions.map(session => (
-                                                <tr key={session.id} className="hover:bg-white/5 transition-colors">
-                                                    <td className="px-6 py-4 font-mono text-xs text-white">{new Date(session.openedAt).toLocaleString()}</td>
-                                                    <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
-                                                    <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {session.openingBalance.toFixed(2)}</td>
-                                                    <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance !== undefined ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                                                            {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
-                                                        </span>
-                                                    </td>
+                             <div className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                   {monthlyStats.map(stat => (
+                                       <div key={stat.name} className="bg-red-900/30 p-6 rounded-2xl border border-white/5 flex flex-col gap-2">
+                                           <div className="text-gold font-bold text-lg serif mb-2">{stat.name}</div>
+                                           <div className="flex justify-between items-center text-xs">
+                                               <span className="text-red-300 uppercase font-black">Entradas</span>
+                                               <span className="font-mono text-emerald-400">+ R$ {stat.revenue.toFixed(2)}</span>
+                                           </div>
+                                           <div className="flex justify-between items-center text-xs">
+                                               <span className="text-red-300 uppercase font-black">Saídas</span>
+                                               <span className="font-mono text-red-400">- R$ {stat.expenses.toFixed(2)}</span>
+                                           </div>
+                                           <div className="h-px bg-white/10 my-1"></div>
+                                           <div className="flex justify-between items-center">
+                                               <span className="text-white font-bold uppercase text-[10px] tracking-widest">Resultado</span>
+                                               <span className={`font-mono font-bold text-lg ${stat.balance >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
+                                                   {stat.balance >= 0 ? '+' : ''} R$ {stat.balance.toFixed(2)}
+                                               </span>
+                                           </div>
+                                       </div>
+                                   ))}
+                                </div>
+
+                                <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
+                                                <tr>
+                                                    <th className="px-6 py-4">Data Abertura</th>
+                                                    <th className="px-6 py-4">Data Fechamento</th>
+                                                    <th className="px-6 py-4 text-right">Saldo Inicial</th>
+                                                    <th className="px-6 py-4 text-right">Saldo Final</th>
+                                                    <th className="px-6 py-4 text-center">Status</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5">
+                                                {sessions.map(session => (
+                                                    <tr key={session.id} className="hover:bg-white/5 transition-colors">
+                                                        <td className="px-6 py-4 font-mono text-xs text-white">{new Date(session.openedAt).toLocaleString()}</td>
+                                                        <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
+                                                        <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {session.openingBalance.toFixed(2)}</td>
+                                                        <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance !== undefined ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                                {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                              </div>
                         ) : (
@@ -1100,7 +1263,7 @@ export default function App() {
   const [isItemSelectorOpen, setIsItemSelectorOpen] = useState(false);
   
   // Admin states
-  const [adminTab, setAdminTab] = useState<'menu' | 'categories' | 'stock' | 'footer' | 'caixa'>('menu');
+  const [adminTab, setAdminTab] = useState<'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios'>('menu');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('Todos');
 
