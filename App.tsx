@@ -1052,9 +1052,14 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             {/* Pendentes */}
                             <div className="bg-red-900/40 rounded-[30px] border border-white/5 p-6 flex flex-col h-[60vh]">
-                                <h4 className="text-xl font-bold serif text-red-300 mb-4 flex items-center gap-2">
-                                    <span>⚠️</span> Contas Pendentes / A Pagar
-                                </h4>
+                                <div className="flex justify-between items-center mb-4">
+                                     <h4 className="text-xl font-bold serif text-red-300 flex items-center gap-2">
+                                        <span>⚠️</span> Contas Pendentes / A Pagar
+                                    </h4>
+                                    <button onClick={onOpenAddBill} className="bg-red-950/50 border border-gold/30 text-gold hover:bg-gold hover:text-black px-3 py-2 rounded-lg text-[10px] font-black uppercase transition-all">
+                                        + Nova Conta
+                                    </button>
+                                </div>
                                 <div className="flex-grow overflow-y-auto custom-scrollbar space-y-3">
                                     {pendingBills.map(bill => (
                                         <div key={bill.id} className="bg-red-950/50 p-4 rounded-2xl border-l-4 border-red-500 flex flex-col gap-2">
