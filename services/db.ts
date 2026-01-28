@@ -1,18 +1,19 @@
 
 import { supabase } from './supabaseClient';
-import { MenuItem, DailyRecord, Expense, CashierSession, Table, FooterData } from '../types';
+import { MenuItem, DailyRecord, Expense, CashierSession, Table, FooterData, Payable } from '../types';
 import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from '../constants';
 
 export const dbService = {
   // --- Inicialização e Carga ---
   async fetchAllData() {
-    const [menuRes, catsRes, tablesRes, cashierRes, recordsRes, expRes, settingsRes] = await Promise.all([
+    const [menuRes, catsRes, tablesRes, cashierRes, recordsRes, expRes, payablesRes, settingsRes] = await Promise.all([
       supabase.from('menu_items').select('*'),
       supabase.from('categories').select('*'),
       supabase.from('tables').select('*').order('id'),
       supabase.from('cashier_sessions').select('*').order('opened_at', { ascending: false }),
       supabase.from('daily_records').select('*').order('closed_at', { ascending: false }),
       supabase.from('expenses').select('*').order('timestamp', { ascending: false }),
+      supabase.from('payables').select('*').order('due_date', { ascending: true }),
       supabase.from('settings').select('*').eq('key', 'footer_data').single()
     ]);
 
@@ -99,6 +100,14 @@ export const dbService = {
         timestamp: e.timestamp,
         sessionId: e.session_id
       })) || [],
+      payables: payablesRes.data?.map((p: any) => ({
+        id: p.id,
+        description: p.description,
+        amount: p.amount,
+        dueDate: p.due_date,
+        status: p.status,
+        paidAt: p.paid_at
+      })) || [],
       footerData: settingsRes.data?.value || null
     };
   },
@@ -181,6 +190,29 @@ export const dbService = {
 
   async deleteExpense(id: string) {
     await supabase.from('expenses').delete().eq('id', id);
+  },
+
+  // --- Contas a Pagar ---
+  async addPayable(payable: Payable) {
+    await supabase.from('payables').insert({
+      id: payable.id,
+      description: payable.description,
+      amount: payable.amount,
+      due_date: payable.dueDate,
+      status: payable.status,
+      paid_at: payable.paidAt
+    });
+  },
+
+  async markPayableAsPaid(id: string, paidAt: number) {
+    await supabase.from('payables').update({
+        status: 'PAID',
+        paid_at: paidAt
+    }).eq('id', id);
+  },
+
+  async deletePayable(id: string) {
+    await supabase.from('payables').delete().eq('id', id);
   },
 
   // --- Mesas (Tempo Real / Persistência) ---

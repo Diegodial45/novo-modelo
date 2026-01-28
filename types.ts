@@ -66,6 +66,15 @@ export interface Expense {
   sessionId: string;
 }
 
+export interface Payable {
+  id: string;
+  description: string;
+  amount: number;
+  dueDate: number;
+  status: 'PENDING' | 'PAID';
+  paidAt?: number;
+}
+
 export interface CashierSession {
   id: string;
   openedAt: number;

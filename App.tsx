@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession, FooterData } from './types';
+import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession, FooterData, Payable } from './types';
 import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from './constants';
 import { enhanceDescription } from './services/geminiService';
 import { dbService } from './services/db';
@@ -35,6 +35,11 @@ interface ExpenseModalProps {
 interface AddOperationModalProps {
   onSave: (data: { type: 'ENTRADA' | 'SAIDA'; description: string; amount: number; method: string }) => void;
   onClose: () => void;
+}
+
+interface AddBillModalProps {
+    onSave: (bill: { description: string; amount: number; dueDate: string }) => void;
+    onClose: () => void;
 }
 
 interface PaymentModalProps {
@@ -92,15 +97,18 @@ interface MenuViewProps {
     activeTableId: number | null;
 }
 
+type AdminTabType = 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios' | 'contas';
+
 interface AdminPanelProps {
     items: MenuItem[];
     categories: string[];
-    sessions: CashierSession[]; // Added sessions prop
+    sessions: CashierSession[];
     currentSession: CashierSession | undefined;
     dailyRecords: DailyRecord[];
     expenses: Expense[];
-    adminTab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios';
-    setAdminTab: (tab: 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios') => void;
+    payables: Payable[];
+    adminTab: AdminTabType;
+    setAdminTab: (tab: AdminTabType) => void;
     setEditingItemId: (id: string | null) => void;
     handleUpdateItem: (item: MenuItem) => void;
     handleAddCategory: (cat: string) => void;
@@ -113,6 +121,9 @@ interface AdminPanelProps {
     onCloseCashierClick: () => void;
     onDeleteOperation: (id: string, type: 'ENTRADA' | 'SAIDA') => void;
     onOpenAddOperation: () => void;
+    onOpenAddBill: () => void;
+    onPayBill: (bill: Payable) => void;
+    onDeleteBill: (id: string) => void;
 }
 
 
@@ -139,6 +150,41 @@ const LoadingOverlay = () => (
 );
 
 // --- Modals ---
+
+const AddBillModal = ({ onSave, onClose }: AddBillModalProps) => {
+    const [desc, setDesc] = useState("");
+    const [amount, setAmount] = useState("");
+    const [date, setDate] = useState("");
+
+    const handleSave = () => {
+        if (!desc.trim() || !amount || !date) {
+            alert("Por favor, preencha todos os campos.");
+            return;
+        }
+        onSave({ description: desc, amount: parseFloat(amount) || 0, dueDate: date });
+    };
+
+    return (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 animate-fade-in">
+            <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
+            <div className="relative bg-red-900 border-2 border-gold/40 w-full max-w-md rounded-[40px] p-8 animate-zoom-in">
+                <h3 className="text-2xl font-bold text-white serif mb-6">Lançar Conta a Pagar</h3>
+                <div className="space-y-4">
+                    <input placeholder="Descrição (ex: Fornecedor Carne)" value={desc} onChange={e => setDesc(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
+                    <input type="number" placeholder="Valor R$" value={amount} onChange={e => setAmount(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
+                    <div>
+                        <label className="text-[10px] text-red-300 font-black uppercase mb-2 block">Data de Vencimento</label>
+                        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
+                    </div>
+                </div>
+                <div className="flex gap-4 mt-8">
+                    <button onClick={onClose} className="flex-grow py-4 rounded-xl bg-white/5 text-red-200 font-bold">Cancelar</button>
+                    <button onClick={handleSave} className="flex-grow py-4 rounded-xl bg-gold text-black font-bold">Salvar Conta</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const OpenCashierModal = ({ onConfirm, onClose }: OpenCashierModalProps) => {
   const [balance, setBalance] = useState("0");
@@ -521,7 +567,7 @@ const EditItemModal = ({ item, categories, onSave, onClose }: EditItemModalProps
             </div>
             <div>
                <label className="text-[9px] text-red-400 font-bold uppercase ml-2 mb-1 block">Preço de Custo (Compra)</label>
-               <input type="number" value={data.costPrice || ''} onChange={e => setData({...data, costPrice: parseFloat(e.target.value) || 0})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Preço Custo" />
+               <input type="number" value={data.costPrice ?? ''} onChange={e => setData({...data, costPrice: parseFloat(e.target.value) || 0})} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" placeholder="Preço Custo" />
             </div>
           </div>
           
@@ -761,7 +807,7 @@ const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, on
     );
 };
 
-const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation }: AdminPanelProps) => {
+const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payables, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation, onOpenAddBill, onPayBill, onDeleteBill }: AdminPanelProps) => {
     
     // Add History View Toggle
     const [viewHistory, setViewHistory] = useState(false);
@@ -833,7 +879,7 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, admin
         const stats: Record<string, { name: string; qty: number; total: number }> = {};
         
         dailyRecords.forEach(record => {
-            record.items.forEach(item => {
+            record.items?.forEach(item => {
                 if (!stats[item.menuItemId]) {
                     stats[item.menuItemId] = { name: item.name, qty: 0, total: 0 };
                 }
@@ -884,16 +930,21 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, admin
         .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
     }, [dailyRecords, expenses]);
 
+    const pendingBills = useMemo(() => payables.filter(p => p.status === 'PENDING').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()), [payables]);
+    const paidBills = useMemo(() => payables.filter(p => p.status === 'PAID').sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0)), [payables]);
+
+    const tabs: AdminTabType[] = ['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa', 'contas'];
+
     return (
         <div className="flex h-full flex-col">
             <div className="flex border-b border-white/10 bg-red-900/20 px-6 overflow-x-auto no-scrollbar">
-                {['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa'].map(t => (
+                {tabs.map(t => (
                     <button 
                         key={t}
-                        onClick={() => setAdminTab(t as any)}
+                        onClick={() => setAdminTab(t)}
                         className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-gold/60 hover:text-gold hover:bg-white/5'}`}
                     >
-                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t.charAt(0).toUpperCase() + t.slice(1)}
+                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t === 'contas' ? 'Contas a Pagar' : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -991,6 +1042,72 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, admin
                      </div>
                 )}
                 
+                {adminTab === 'contas' && (
+                    <div className="space-y-8">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-2xl font-bold serif text-white">Contas a Pagar e Pagas</h3>
+                            <button onClick={onOpenAddBill} className="bg-gold text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 transition-transform">+ Lançar Conta</button>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Pendentes */}
+                            <div className="bg-red-900/40 rounded-[30px] border border-white/5 p-6 flex flex-col h-[60vh]">
+                                <h4 className="text-xl font-bold serif text-red-300 mb-4 flex items-center gap-2">
+                                    <span>⚠️</span> Contas Pendentes / A Pagar
+                                </h4>
+                                <div className="flex-grow overflow-y-auto custom-scrollbar space-y-3">
+                                    {pendingBills.map(bill => (
+                                        <div key={bill.id} className="bg-red-950/50 p-4 rounded-2xl border-l-4 border-red-500 flex flex-col gap-2">
+                                            <div className="flex justify-between items-start">
+                                                <span className="font-bold text-white text-lg">{bill.description}</span>
+                                                <button onClick={() => onDeleteBill(bill.id)} className="text-red-500 hover:text-red-300 text-xs font-bold">Excluir</button>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <div className="text-[10px] uppercase text-red-400 font-black">Vencimento</div>
+                                                    <div className="font-mono text-sm">{new Date(bill.dueDate).toLocaleDateString()}</div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-xl font-bold font-mono text-white">R$ {bill.amount.toFixed(2)}</div>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={() => onPayBill(bill)}
+                                                className="w-full py-3 mt-2 bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 rounded-xl font-bold uppercase text-[10px] hover:bg-emerald-600 hover:text-white transition-all"
+                                            >
+                                                ✅ Marcar como Paga
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {pendingBills.length === 0 && <div className="text-center text-white/30 italic py-10">Nenhuma conta pendente.</div>}
+                                </div>
+                            </div>
+
+                            {/* Pagas */}
+                            <div className="bg-emerald-900/10 rounded-[30px] border border-white/5 p-6 flex flex-col h-[60vh]">
+                                <h4 className="text-xl font-bold serif text-emerald-300 mb-4 flex items-center gap-2">
+                                    <span>📜</span> Histórico de Contas Pagas
+                                </h4>
+                                <div className="flex-grow overflow-y-auto custom-scrollbar space-y-3">
+                                    {paidBills.map(bill => (
+                                        <div key={bill.id} className="bg-emerald-950/30 p-4 rounded-2xl border-l-4 border-emerald-500 flex justify-between items-center opacity-70 hover:opacity-100 transition-opacity">
+                                            <div>
+                                                <div className="font-bold text-white">{bill.description}</div>
+                                                <div className="text-[10px] uppercase text-emerald-400 font-black">Pago em {bill.paidAt ? new Date(bill.paidAt).toLocaleDateString() : '-'}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-lg font-bold font-mono text-emerald-200">R$ {bill.amount.toFixed(2)}</div>
+                                                <div className="text-[9px] text-white/40">Venceu: {new Date(bill.dueDate).toLocaleDateString()}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {paidBills.length === 0 && <div className="text-center text-white/30 italic py-10">Nenhuma conta paga registrada.</div>}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {adminTab === 'relatorios' && (
                     <div className="space-y-6">
                         <h3 className="text-2xl font-bold serif text-white mb-6">Produtos Mais Vendidos</h3>
@@ -1240,6 +1357,7 @@ export default function App() {
   const [currentSession, setCurrentSession] = useState<CashierSession | undefined>(undefined);
   const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [payables, setPayables] = useState<Payable[]>([]); // Estado para contas a pagar
   const [footerData, setFooterData] = useState<FooterData>(DEFAULT_FOOTER);
   const [loading, setLoading] = useState(true);
   
@@ -1255,6 +1373,7 @@ export default function App() {
   const [isQuickSaleOpen, setIsQuickSaleOpen] = useState(false);
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [isAddOperationOpen, setIsAddOperationOpen] = useState(false);
+  const [isAddBillOpen, setIsAddBillOpen] = useState(false);
   
   // Table Interaction states
   const [activeTableId, setActiveTableId] = useState<number | null>(null);
@@ -1263,7 +1382,7 @@ export default function App() {
   const [isItemSelectorOpen, setIsItemSelectorOpen] = useState(false);
   
   // Admin states
-  const [adminTab, setAdminTab] = useState<'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios'>('menu');
+  const [adminTab, setAdminTab] = useState<AdminTabType>('menu');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('Todos');
 
@@ -1287,6 +1406,7 @@ export default function App() {
     
     setDailyRecords(data.dailyRecords);
     setExpenses(data.expenses);
+    setPayables(data.payables || []); // Carrega contas
     if(data.footerData) setFooterData(data.footerData);
     
     setLoading(false);
@@ -1403,6 +1523,53 @@ export default function App() {
       } else {
           await dbService.deleteDailyRecord(id);
           setDailyRecords(prev => prev.filter(r => r.id !== id));
+      }
+  };
+
+  // --- Funções de Contas a Pagar ---
+  const handleAddBill = async (billData: { description: string; amount: number; dueDate: string }) => {
+      // Create date at local noon to avoid timezone shifting to previous day
+      const [y, m, d] = billData.dueDate.split('-').map(Number);
+      const timestamp = new Date(y, m - 1, d).getTime();
+
+      const newBill: Payable = {
+          id: crypto.randomUUID(),
+          description: billData.description,
+          amount: billData.amount,
+          dueDate: timestamp,
+          status: 'PENDING'
+      };
+      await dbService.addPayable(newBill);
+      setPayables(prev => [...prev, newBill]);
+      setIsAddBillOpen(false);
+  };
+
+  const handlePayBill = async (bill: Payable) => {
+      const paidAt = Date.now();
+      await dbService.markPayableAsPaid(bill.id, paidAt);
+      
+      setPayables(prev => prev.map(p => p.id === bill.id ? { ...p, status: 'PAID', paidAt } : p));
+
+      if(currentSession) {
+          if(confirm(`O caixa está aberto. Deseja lançar o pagamento de R$ ${bill.amount.toFixed(2)} como despesa do caixa atual?`)) {
+               const newExp: Expense = {
+                  id: crypto.randomUUID(),
+                  description: `Pagamento de Conta: ${bill.description}`,
+                  amount: bill.amount,
+                  category: "Contas",
+                  timestamp: paidAt,
+                  sessionId: currentSession.id
+              };
+              await dbService.addExpense(newExp);
+              setExpenses(prev => [newExp, ...prev]);
+          }
+      }
+  };
+
+  const handleDeleteBill = async (id: string) => {
+      if(confirm("Tem certeza que deseja excluir esta conta?")) {
+          await dbService.deletePayable(id);
+          setPayables(prev => prev.filter(p => p.id !== id));
       }
   };
 
@@ -1581,6 +1748,7 @@ export default function App() {
                currentSession={currentSession}
                dailyRecords={dailyRecords}
                expenses={expenses}
+               payables={payables}
                adminTab={adminTab}
                setAdminTab={setAdminTab}
                setEditingItemId={setEditingItemId}
@@ -1595,6 +1763,9 @@ export default function App() {
                onCloseCashierClick={() => setIsClosingCashier(true)}
                onDeleteOperation={handleDeleteOperation}
                onOpenAddOperation={() => setIsAddOperationOpen(true)}
+               onOpenAddBill={() => setIsAddBillOpen(true)}
+               onPayBill={handlePayBill}
+               onDeleteBill={handleDeleteBill}
              />
           )}
        </main>
@@ -1605,6 +1776,7 @@ export default function App() {
        {isQuickSaleOpen && <QuickSaleModal items={items} initialItem={quickSaleInitialItem} onClose={() => { setIsQuickSaleOpen(false); setQuickSaleInitialItem(undefined); }} onFinishSale={handleQuickSale} />}
        {isExpenseOpen && <ExpenseModal onSave={handleExpense} onClose={() => setIsExpenseOpen(false)} />}
        {isAddOperationOpen && <AddOperationModal onSave={handleManualOperation} onClose={() => setIsAddOperationOpen(false)} />}
+       {isAddBillOpen && <AddBillModal onSave={handleAddBill} onClose={() => setIsAddBillOpen(false)} />}
        
        {paymentTable && (
          <PaymentModal 
