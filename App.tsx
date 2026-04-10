@@ -151,14 +151,40 @@ const LoadingOverlay = () => (
 
 // --- Modals ---
 
+const ConfirmModal = ({ title, message, confirmText = "Confirmar", cancelText = "Cancelar", onConfirm, onClose }: { title: string, message: string, confirmText?: string, cancelText?: string, onConfirm: () => void, onClose: () => void }) => (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
+        <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
+        <div className="relative bg-red-900 border-2 border-gold/40 w-full max-w-md rounded-[40px] p-8 animate-zoom-in text-center">
+            <h3 className="text-2xl font-bold text-white serif mb-4">{title}</h3>
+            <p className="text-red-200 mb-8">{message}</p>
+            <div className="flex gap-4">
+                <button onClick={onClose} className="flex-grow py-4 rounded-xl bg-white/5 text-red-200 font-bold">{cancelText}</button>
+                <button onClick={onConfirm} className="flex-grow py-4 rounded-xl bg-gold text-black font-bold">{confirmText}</button>
+            </div>
+        </div>
+    </div>
+);
+
+const AlertModal = ({ title, message, buttonText = "OK", onClose }: { title: string, message: string, buttonText?: string, onClose: () => void }) => (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
+        <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
+        <div className="relative bg-red-900 border-2 border-gold/40 w-full max-w-md rounded-[40px] p-8 animate-zoom-in text-center">
+            <h3 className="text-2xl font-bold text-white serif mb-4">{title}</h3>
+            <p className="text-red-200 mb-8">{message}</p>
+            <button onClick={onClose} className="w-full py-4 rounded-xl bg-gold text-black font-bold">{buttonText}</button>
+        </div>
+    </div>
+);
+
 const AddBillModal = ({ onSave, onClose }: AddBillModalProps) => {
     const [desc, setDesc] = useState("");
     const [amount, setAmount] = useState("");
     const [date, setDate] = useState("");
+    const [error, setError] = useState("");
 
     const handleSave = () => {
         if (!desc.trim() || !amount || !date) {
-            alert("Por favor, preencha todos os campos.");
+            setError("Por favor, preencha todos os campos.");
             return;
         }
         onSave({ description: desc, amount: parseFloat(amount) || 0, dueDate: date });
@@ -169,12 +195,13 @@ const AddBillModal = ({ onSave, onClose }: AddBillModalProps) => {
             <div className="absolute inset-0 bg-red-950/95 backdrop-blur-md" onClick={onClose}></div>
             <div className="relative bg-red-900 border-2 border-gold/40 w-full max-w-md rounded-[40px] p-8 animate-zoom-in">
                 <h3 className="text-2xl font-bold text-white serif mb-6">Lançar Conta a Pagar</h3>
+                {error && <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-xl mb-6 text-sm text-center">{error}</div>}
                 <div className="space-y-4">
-                    <input placeholder="Descrição (ex: Fornecedor Carne)" value={desc} onChange={e => setDesc(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
-                    <input type="number" placeholder="Valor R$" value={amount} onChange={e => setAmount(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
+                    <input placeholder="Descrição (ex: Fornecedor Carne)" value={desc} onChange={e => {setDesc(e.target.value); setError("");}} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
+                    <input type="number" placeholder="Valor R$" value={amount} onChange={e => {setAmount(e.target.value); setError("");}} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
                     <div>
                         <label className="text-[10px] text-red-300 font-black uppercase mb-2 block">Data de Vencimento</label>
-                        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
+                        <input type="date" value={date} onChange={e => {setDate(e.target.value); setError("");}} className="w-full bg-red-800 border border-white/10 rounded-2xl px-6 py-4 text-white" />
                     </div>
                 </div>
                 <div className="flex gap-4 mt-8">
@@ -289,7 +316,7 @@ const CloseCashierModal = ({ session, records, expenses, onConfirm, onClose }: C
             <div className="grid grid-cols-3 gap-4">
                 <div className="bg-red-800/50 p-4 rounded-2xl border border-white/5">
                     <div className="text-red-400 text-[9px] uppercase font-bold mb-1">Fundo Inicial</div>
-                    <div className="text-xl font-bold text-white">R$ {session.openingBalance.toFixed(2)}</div>
+                    <div className="text-xl font-bold text-white">R$ {(session.openingBalance || 0).toFixed(2)}</div>
                 </div>
                 <div className="bg-emerald-900/30 p-4 rounded-2xl border border-emerald-500/20">
                     <div className="text-emerald-400 text-[9px] uppercase font-bold mb-1">Vendas (Dinheiro)</div>
@@ -811,6 +838,8 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
     
     // Add History View Toggle
     const [viewHistory, setViewHistory] = useState(false);
+    const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+    const [operationToDelete, setOperationToDelete] = useState<{id: string, type: 'ENTRADA' | 'SAIDA'} | null>(null);
 
     // Logic for Cashier Timeline/Extraction
     const cashierStats = useMemo(() => {
@@ -930,7 +959,7 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
         .sort((a, b) => b.sortKey.localeCompare(a.sortKey));
     }, [dailyRecords, expenses]);
 
-    const pendingBills = useMemo(() => payables.filter(p => p.status === 'PENDING').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()), [payables]);
+    const pendingBills = useMemo(() => payables.filter(p => p.status === 'PENDING').sort((a, b) => a.dueDate - b.dueDate), [payables]);
     const paidBills = useMemo(() => payables.filter(p => p.status === 'PAID').sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0)), [payables]);
 
     const tabs: AdminTabType[] = ['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa', 'contas'];
@@ -1164,66 +1193,93 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                     <div className="space-y-6">
                         <div className="flex justify-between items-center mb-4">
                              <div className="flex gap-2">
-                                 <button onClick={() => setViewHistory(false)} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase ${!viewHistory ? 'bg-gold text-black' : 'bg-white/5 text-red-300'}`}>Caixa Atual</button>
-                                 <button onClick={() => setViewHistory(true)} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase ${viewHistory ? 'bg-gold text-black' : 'bg-white/5 text-red-300'}`}>📜 Histórico de Caixas</button>
+                                 <button onClick={() => { setViewHistory(false); setSelectedMonth(null); }} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase ${!viewHistory ? 'bg-gold text-black' : 'bg-white/5 text-red-300'}`}>Caixa Atual</button>
+                                 <button onClick={() => { setViewHistory(true); setSelectedMonth(null); }} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase ${viewHistory ? 'bg-gold text-black' : 'bg-white/5 text-red-300'}`}>📜 Histórico de Caixas</button>
                              </div>
                         </div>
 
                         {viewHistory ? (
                              <div className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                   {monthlyStats.map(stat => (
-                                       <div key={stat.name} className="bg-red-900/30 p-6 rounded-2xl border border-white/5 flex flex-col gap-2">
-                                           <div className="text-gold font-bold text-lg serif mb-2">{stat.name}</div>
-                                           <div className="flex justify-between items-center text-xs">
-                                               <span className="text-red-300 uppercase font-black">Entradas</span>
-                                               <span className="font-mono text-emerald-400">+ R$ {stat.revenue.toFixed(2)}</span>
+                                {!selectedMonth ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                       {monthlyStats.map(stat => (
+                                           <div key={stat.name} onClick={() => setSelectedMonth(stat.name)} className="bg-red-900/30 p-6 rounded-2xl border border-white/5 flex flex-col gap-2 cursor-pointer hover:bg-red-900/50 hover:border-gold/30 transition-all">
+                                               <div className="text-gold font-bold text-lg serif mb-2 flex justify-between items-center">
+                                                   <span>{stat.name}</span>
+                                                   <span className="text-xs font-sans text-red-300">Ver Detalhes ➔</span>
+                                               </div>
+                                               <div className="flex justify-between items-center text-xs">
+                                                   <span className="text-red-300 uppercase font-black">Entradas</span>
+                                                   <span className="font-mono text-emerald-400">+ R$ {stat.revenue.toFixed(2)}</span>
+                                               </div>
+                                               <div className="flex justify-between items-center text-xs">
+                                                   <span className="text-red-300 uppercase font-black">Saídas</span>
+                                                   <span className="font-mono text-red-400">- R$ {stat.expenses.toFixed(2)}</span>
+                                               </div>
+                                               <div className="h-px bg-white/10 my-1"></div>
+                                               <div className="flex justify-between items-center">
+                                                   <span className="text-white font-bold uppercase text-[10px] tracking-widest">Resultado</span>
+                                                   <span className={`font-mono font-bold text-lg ${stat.balance >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
+                                                       {stat.balance >= 0 ? '+' : ''} R$ {stat.balance.toFixed(2)}
+                                                   </span>
+                                               </div>
                                            </div>
-                                           <div className="flex justify-between items-center text-xs">
-                                               <span className="text-red-300 uppercase font-black">Saídas</span>
-                                               <span className="font-mono text-red-400">- R$ {stat.expenses.toFixed(2)}</span>
-                                           </div>
-                                           <div className="h-px bg-white/10 my-1"></div>
-                                           <div className="flex justify-between items-center">
-                                               <span className="text-white font-bold uppercase text-[10px] tracking-widest">Resultado</span>
-                                               <span className={`font-mono font-bold text-lg ${stat.balance >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
-                                                   {stat.balance >= 0 ? '+' : ''} R$ {stat.balance.toFixed(2)}
-                                               </span>
-                                           </div>
-                                       </div>
-                                   ))}
-                                </div>
-
-                                <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left">
-                                            <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
-                                                <tr>
-                                                    <th className="px-6 py-4">Data Abertura</th>
-                                                    <th className="px-6 py-4">Data Fechamento</th>
-                                                    <th className="px-6 py-4 text-right">Saldo Inicial</th>
-                                                    <th className="px-6 py-4 text-right">Saldo Final</th>
-                                                    <th className="px-6 py-4 text-center">Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-white/5">
-                                                {sessions.map(session => (
-                                                    <tr key={session.id} className="hover:bg-white/5 transition-colors">
-                                                        <td className="px-6 py-4 font-mono text-xs text-white">{new Date(session.openedAt).toLocaleString()}</td>
-                                                        <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
-                                                        <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {session.openingBalance.toFixed(2)}</td>
-                                                        <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance !== undefined ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                                                                {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                       ))}
+                                       {monthlyStats.length === 0 && (
+                                           <div className="col-span-full text-center py-12 text-red-400 italic">Nenhum histórico registrado.</div>
+                                       )}
                                     </div>
-                                </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <button onClick={() => setSelectedMonth(null)} className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-white transition-colors">
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                                            </button>
+                                            <h4 className="text-xl font-bold serif text-white">Sessões de {selectedMonth}</h4>
+                                        </div>
+                                        <div className="bg-red-900/40 rounded-[30px] border border-white/5 overflow-hidden">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-left">
+                                                    <thead className="bg-red-950/50 text-red-300 text-[9px] font-black uppercase tracking-widest">
+                                                        <tr>
+                                                            <th className="px-6 py-4">Data Abertura</th>
+                                                            <th className="px-6 py-4">Data Fechamento</th>
+                                                            <th className="px-6 py-4 text-right">Saldo Inicial</th>
+                                                            <th className="px-6 py-4 text-right">Saldo Final</th>
+                                                            <th className="px-6 py-4 text-center">Status</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-white/5">
+                                                        {sessions.filter(session => {
+                                                            const d = new Date(session.openedAt);
+                                                            const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+                                                            return `${monthNames[d.getMonth()]} ${d.getFullYear()}` === selectedMonth;
+                                                        }).map(session => (
+                                                            <tr key={session.id} className="hover:bg-white/5 transition-colors">
+                                                                <td className="px-6 py-4 font-mono text-xs text-white">{new Date(session.openedAt).toLocaleString()}</td>
+                                                                <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
+                                                                <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {(session.openingBalance || 0).toFixed(2)}</td>
+                                                                <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance != null ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
+                                                                <td className="px-6 py-4 text-center">
+                                                                    <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                                        {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                        {sessions.filter(session => {
+                                                            const d = new Date(session.openedAt);
+                                                            const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+                                                            return `${monthNames[d.getMonth()]} ${d.getFullYear()}` === selectedMonth;
+                                                        }).length === 0 && (
+                                                            <tr><td colSpan={5} className="text-center py-12 text-red-400 italic">Nenhuma sessão encontrada para este mês.</td></tr>
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                              </div>
                         ) : (
                              <>
@@ -1317,16 +1373,12 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                                                                     <td className="px-6 py-4 text-sm font-bold text-white">{op.description}</td>
                                                                     <td className="px-6 py-4 text-[10px] font-black uppercase text-red-300">{op.method}</td>
                                                                     <td className={`px-6 py-4 text-right font-bold font-mono ${op.type === 'SAIDA' ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                                        {op.type === 'SAIDA' ? '-' : '+'} R$ {op.amount.toFixed(2)}
+                                                                        {op.type === 'SAIDA' ? '-' : '+'} R$ {(op.amount || 0).toFixed(2)}
                                                                     </td>
                                                                     <td className="px-6 py-4 text-center">
                                                                         {op.category !== 'Abertura' && (
                                                                             <button 
-                                                                                onClick={() => {
-                                                                                    if(confirm('Tem certeza que deseja excluir este registro?')) {
-                                                                                        onDeleteOperation(op.id, op.type as 'ENTRADA' | 'SAIDA');
-                                                                                    }
-                                                                                }} 
+                                                                                onClick={() => setOperationToDelete({ id: op.id, type: op.type as 'ENTRADA' | 'SAIDA' })}
                                                                                 className="w-8 h-8 rounded-full bg-red-950 text-red-400 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center text-xs"
                                                                             >
                                                                                 🗑️
@@ -1350,11 +1402,62 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                     </div>
                 )}
             </div>
+            {operationToDelete && (
+                <ConfirmModal
+                    title="Excluir Registro"
+                    message="Tem certeza que deseja excluir este registro?"
+                    confirmText="Excluir"
+                    onConfirm={() => {
+                        onDeleteOperation(operationToDelete.id, operationToDelete.type);
+                        setOperationToDelete(null);
+                    }}
+                    onClose={() => setOperationToDelete(null)}
+                />
+            )}
         </div>
     );
 };
 
-export default function App() {
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-red-950 text-white flex flex-col items-center justify-center p-8">
+            <div className="bg-red-900/50 p-8 rounded-3xl border border-red-500/30 max-w-2xl w-full text-center">
+                <div className="text-6xl mb-6">⚠️</div>
+                <h1 className="text-3xl font-bold serif mb-4">Ops! Algo deu errado.</h1>
+                <p className="text-red-300 mb-6">Ocorreu um erro inesperado no sistema. Por favor, recarregue a página.</p>
+                <div className="bg-black/30 p-4 rounded-xl text-left overflow-auto max-h-48 mb-8 font-mono text-xs text-red-200">
+                    {this.state.error?.toString()}
+                </div>
+                <button 
+                    onClick={() => window.location.reload()} 
+                    className="px-8 py-4 bg-gold text-black font-bold rounded-xl hover:scale-105 transition-transform"
+                >
+                    Recarregar Sistema
+                </button>
+            </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function MainApp() {
   const [mode, setMode] = useState<AppMode>(AppMode.VIEW);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -1379,6 +1482,11 @@ export default function App() {
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [isAddOperationOpen, setIsAddOperationOpen] = useState(false);
   const [isAddBillOpen, setIsAddBillOpen] = useState(false);
+  
+  // Generic Modal States
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [billToPay, setBillToPay] = useState<Payable | null>(null);
+  const [billToDelete, setBillToDelete] = useState<string | null>(null);
   
   // Table Interaction states
   const [activeTableId, setActiveTableId] = useState<number | null>(null);
@@ -1443,7 +1551,7 @@ export default function App() {
   };
 
   const handleQuickSale = async (cart: TableItem[], paymentMethod: string) => {
-      if(!currentSession) return alert("Caixa fechado!");
+      if(!currentSession) return setAlertMessage("Caixa fechado!");
       
       const total = cart.reduce((a, b) => a + (b.price * b.quantity), 0);
       const record: DailyRecord = {
@@ -1475,7 +1583,7 @@ export default function App() {
   };
 
   const handleExpense = async (expData: { description: string; amount: number; category: string; }) => {
-      if(!currentSession) return alert("Caixa fechado!");
+      if(!currentSession) return setAlertMessage("Caixa fechado!");
       const newExp: Expense = {
           id: crypto.randomUUID(),
           ...expData,
@@ -1550,32 +1658,43 @@ export default function App() {
   };
 
   const handlePayBill = async (bill: Payable) => {
+      if (currentSession) {
+          setBillToPay(bill);
+      } else {
+          await executePayBill(bill, false);
+      }
+  };
+
+  const executePayBill = async (bill: Payable, addToCashier: boolean) => {
       const paidAt = Date.now();
       await dbService.markPayableAsPaid(bill.id, paidAt);
       
       setPayables(prev => prev.map(p => p.id === bill.id ? { ...p, status: 'PAID', paidAt } : p));
 
-      if(currentSession) {
-          if(confirm(`O caixa está aberto. Deseja lançar o pagamento de R$ ${bill.amount.toFixed(2)} como despesa do caixa atual?`)) {
-               const newExp: Expense = {
-                  id: crypto.randomUUID(),
-                  description: `Pagamento de Conta: ${bill.description}`,
-                  amount: bill.amount,
-                  category: "Contas",
-                  timestamp: paidAt,
-                  sessionId: currentSession.id
-              };
-              await dbService.addExpense(newExp);
-              setExpenses(prev => [newExp, ...prev]);
-          }
+      if(addToCashier && currentSession) {
+           const newExp: Expense = {
+              id: crypto.randomUUID(),
+              description: `Pagamento de Conta: ${bill.description}`,
+              amount: bill.amount,
+              category: "Contas",
+              timestamp: paidAt,
+              sessionId: currentSession.id
+          };
+          await dbService.addExpense(newExp);
+          setExpenses(prev => [newExp, ...prev]);
       }
+      setBillToPay(null);
   };
 
-  const handleDeleteBill = async (id: string) => {
-      if(confirm("Tem certeza que deseja excluir esta conta?")) {
-          await dbService.deletePayable(id);
-          setPayables(prev => prev.filter(p => p.id !== id));
-      }
+  const handleDeleteBill = (id: string) => {
+      setBillToDelete(id);
+  };
+
+  const executeDeleteBill = async () => {
+      if (!billToDelete) return;
+      await dbService.deletePayable(billToDelete);
+      setPayables(prev => prev.filter(p => p.id !== billToDelete));
+      setBillToDelete(null);
   };
 
   const handleUpdateTable = async (updatedTable: Table) => {
@@ -1631,7 +1750,7 @@ export default function App() {
   };
 
   const handleTablePayment = async (table: Table, method: string) => {
-       if(!currentSession) return alert("Caixa fechado!");
+       if(!currentSession) return setAlertMessage("Caixa fechado!");
        const total = table.items.reduce((a, b) => a + (b.price * b.quantity), 0);
        
        const record: DailyRecord = {
@@ -1821,6 +1940,43 @@ export default function App() {
              onClose={() => setEditingItemId(null)}
           />
        )}
+
+       {alertMessage && (
+           <AlertModal
+               title="Aviso"
+               message={alertMessage}
+               onClose={() => setAlertMessage(null)}
+           />
+       )}
+
+       {billToPay && (
+           <ConfirmModal
+               title="Lançar Despesa no Caixa?"
+               message={`O caixa está aberto. Deseja lançar o pagamento de R$ ${billToPay.amount.toFixed(2)} como despesa do caixa atual?`}
+               confirmText="Sim, lançar no caixa"
+               cancelText="Não, apenas marcar como paga"
+               onConfirm={() => executePayBill(billToPay, true)}
+               onClose={() => executePayBill(billToPay, false)}
+           />
+       )}
+
+       {billToDelete && (
+           <ConfirmModal
+               title="Excluir Conta"
+               message="Tem certeza que deseja excluir esta conta?"
+               confirmText="Excluir"
+               onConfirm={executeDeleteBill}
+               onClose={() => setBillToDelete(null)}
+           />
+       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
   );
 }
