@@ -839,6 +839,7 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
     // Add History View Toggle
     const [viewHistory, setViewHistory] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+    const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
     const [operationToDelete, setOperationToDelete] = useState<{id: string, type: 'ENTRADA' | 'SAIDA'} | null>(null);
 
     // Logic for Cashier Timeline/Extraction
@@ -1255,17 +1256,46 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                                                             const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
                                                             return `${monthNames[d.getMonth()]} ${d.getFullYear()}` === selectedMonth;
                                                         }).map(session => (
-                                                            <tr key={session.id} className="hover:bg-white/5 transition-colors">
-                                                                <td className="px-6 py-4 font-mono text-xs text-white">{new Date(session.openedAt).toLocaleString()}</td>
-                                                                <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
-                                                                <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {(session.openingBalance || 0).toFixed(2)}</td>
-                                                                <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance != null ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
-                                                                <td className="px-6 py-4 text-center">
-                                                                    <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                                                                        {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
-                                                                    </span>
-                                                                </td>
-                                                            </tr>
+                                                            <React.Fragment key={session.id}>
+                                                                <tr onClick={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} className="hover:bg-white/5 transition-colors cursor-pointer">
+                                                                    <td className="px-6 py-4 font-mono text-xs text-white flex items-center gap-2">
+                                                                        <span className="text-[10px] text-red-400">{expandedSessionId === session.id ? '▼' : '▶'}</span>
+                                                                        {new Date(session.openedAt).toLocaleString()}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 font-mono text-xs text-white">{session.closedAt ? new Date(session.closedAt).toLocaleString() : '-'}</td>
+                                                                    <td className="px-6 py-4 text-right font-mono text-xs text-white">R$ {(session.openingBalance || 0).toFixed(2)}</td>
+                                                                    <td className="px-6 py-4 text-right font-mono text-xs text-white">{session.closingBalance != null ? `R$ ${session.closingBalance.toFixed(2)}` : '-'}</td>
+                                                                    <td className="px-6 py-4 text-center">
+                                                                        <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase ${session.status === 'OPEN' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                                            {session.status === 'OPEN' ? 'Aberto' : 'Fechado'}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                                {expandedSessionId === session.id && (
+                                                                    <tr className="bg-black/20">
+                                                                        <td colSpan={5} className="px-6 py-4">
+                                                                            <div className="space-y-4">
+                                                                                <h5 className="text-sm font-bold text-red-300 uppercase tracking-widest">Detalhamento de Gastos (Saídas)</h5>
+                                                                                {expenses.filter(e => e.sessionId === session.id).length > 0 ? (
+                                                                                    <ul className="space-y-2">
+                                                                                        {expenses.filter(e => e.sessionId === session.id).map(exp => (
+                                                                                            <li key={exp.id} className="flex justify-between items-center bg-red-950/30 p-3 rounded-xl border border-red-900/50">
+                                                                                                <div>
+                                                                                                    <span className="font-bold text-white text-sm">{exp.description}</span>
+                                                                                                    <div className="text-[10px] text-red-400 uppercase font-black">{exp.category} • {new Date(exp.timestamp).toLocaleTimeString()}</div>
+                                                                                                </div>
+                                                                                                <span className="font-mono text-red-400 font-bold">- R$ {exp.amount.toFixed(2)}</span>
+                                                                                            </li>
+                                                                                        ))}
+                                                                                    </ul>
+                                                                                ) : (
+                                                                                    <div className="text-xs text-white/40 italic">Nenhum gasto registrado nesta sessão.</div>
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </React.Fragment>
                                                         ))}
                                                         {sessions.filter(session => {
                                                             const d = new Date(session.openedAt);
