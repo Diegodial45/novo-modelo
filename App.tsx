@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession, FooterData, Payable } from './types';
+import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession, FooterData, Payable, Employee, EmployeeRecord } from './types';
 import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from './constants';
 import { enhanceDescription } from './services/geminiService';
 import { dbService } from './services/db';
@@ -97,7 +97,7 @@ interface MenuViewProps {
     activeTableId: number | null;
 }
 
-type AdminTabType = 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios' | 'contas';
+type AdminTabType = 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios' | 'contas' | 'funcionarios';
 
 interface AdminPanelProps {
     items: MenuItem[];
@@ -107,6 +107,8 @@ interface AdminPanelProps {
     dailyRecords: DailyRecord[];
     expenses: Expense[];
     payables: Payable[];
+    employees: Employee[];
+    employeeRecords: EmployeeRecord[];
     adminTab: AdminTabType;
     setAdminTab: (tab: AdminTabType) => void;
     setEditingItemId: (id: string | null) => void;
@@ -124,6 +126,9 @@ interface AdminPanelProps {
     onOpenAddBill: () => void;
     onPayBill: (bill: Payable) => void;
     onDeleteBill: (id: string) => void;
+    onAddEmployee: (emp: Employee) => void;
+    onUpdateEmployee: (emp: Employee) => void;
+    onAddEmployeeRecord: (record: EmployeeRecord) => void;
 }
 
 
@@ -834,13 +839,19 @@ const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, on
     );
 };
 
-const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payables, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation, onOpenAddBill, onPayBill, onDeleteBill }: AdminPanelProps) => {
+const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payables, employees, employeeRecords, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation, onOpenAddBill, onPayBill, onDeleteBill, onAddEmployee, onUpdateEmployee, onAddEmployeeRecord }: AdminPanelProps) => {
     
     // Add History View Toggle
     const [viewHistory, setViewHistory] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
     const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
     const [operationToDelete, setOperationToDelete] = useState<{id: string, type: 'ENTRADA' | 'SAIDA'} | null>(null);
+
+    // Employee logic
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+    const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
+    const [isAddRecordOpen, setIsAddRecordOpen] = useState(false);
+    const [recordTypeToAdd, setRecordTypeToAdd] = useState<'VALE' | 'DESPESA' | 'PAGAMENTO'>('VALE');
 
     // Logic for Cashier Timeline/Extraction
     const cashierStats = useMemo(() => {
@@ -963,7 +974,7 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
     const pendingBills = useMemo(() => payables.filter(p => p.status === 'PENDING').sort((a, b) => a.dueDate - b.dueDate), [payables]);
     const paidBills = useMemo(() => payables.filter(p => p.status === 'PAID').sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0)), [payables]);
 
-    const tabs: AdminTabType[] = ['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa', 'contas'];
+    const tabs: AdminTabType[] = ['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa', 'contas', 'funcionarios'];
 
     return (
         <div className="flex h-full flex-col">
@@ -974,7 +985,7 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                         onClick={() => setAdminTab(t)}
                         className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-gold/60 hover:text-gold hover:bg-white/5'}`}
                     >
-                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t === 'contas' ? 'Contas a Pagar' : t.charAt(0).toUpperCase() + t.slice(1)}
+                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t === 'contas' ? 'Contas a Pagar' : t === 'funcionarios' ? 'Funcionários' : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -1175,6 +1186,97 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                                         )}
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                
+                {adminTab === 'funcionarios' && (
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-2xl font-bold serif text-white">Quadro de Funcionários</h3>
+                            <button onClick={() => { setSelectedEmployeeId(null); setIsAddEmployeeOpen(true); }} className="bg-gold text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 transition-transform">+ Novo Funcionário</button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="md:col-span-1 space-y-4">
+                                <h4 className="text-lg font-bold text-red-300 uppercase tracking-widest text-[10px]">Colaboradores</h4>
+                                {employees.map(emp => {
+                                    const eRecords = employeeRecords.filter(r => r.employeeId === emp.id);
+                                    let balance = 0;
+                                    eRecords.forEach(r => {
+                                        if (r.type === 'VALE' || r.type === 'DESPESA') balance -= r.amount;
+                                        if (r.type === 'PAGAMENTO') balance += r.amount;
+                                    });
+                                    
+                                    return (
+                                        <div 
+                                            key={emp.id} 
+                                            onClick={() => setSelectedEmployeeId(emp.id)}
+                                            className={`p-4 rounded-2xl border cursor-pointer transition-all ${selectedEmployeeId === emp.id ? 'bg-red-900 border-gold shadow-lg shadow-gold/10' : 'bg-red-950/40 border-white/5 hover:border-white/10'}`}
+                                        >
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <div className="font-bold text-white">{emp.name}</div>
+                                                    <div className="text-[10px] text-red-400 uppercase tracking-widest">{emp.role}</div>
+                                                </div>
+                                                {!emp.isActive && <span className="px-2 py-0.5 bg-red-500/20 text-red-500 text-[9px] rounded uppercase font-black">Inativo</span>}
+                                            </div>
+                                            <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5">
+                                                <span className="text-xs text-white/50">Saldo / Vales:</span>
+                                                <span className={`font-mono text-sm font-bold ${balance < 0 ? 'text-red-400' : 'text-emerald-400'}`}>R$ {balance.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {employees.length === 0 && <div className="text-white/40 italic p-4 text-center border border-dashed border-white/10 rounded-xl">Nenhum funcionário cadastrado.</div>}
+                            </div>
+                            
+                            <div className="md:col-span-2">
+                                {selectedEmployeeId ? (() => {
+                                    const currentEmp = employees.find(e => e.id === selectedEmployeeId);
+                                    const eRecords = employeeRecords.filter(r => r.employeeId === selectedEmployeeId).sort((a, b) => b.timestamp - a.timestamp);
+                                    return currentEmp ? (
+                                        <div className="bg-red-900/30 border border-white/5 rounded-[30px] p-6 lg:p-8 flex flex-col h-[70vh]">
+                                            <div className="flex justify-between items-center mb-6">
+                                                <div>
+                                                    <h3 className="text-2xl font-serif font-bold text-white">{currentEmp.name}</h3>
+                                                    <p className="text-red-400 text-xs font-black uppercase tracking-widest">{currentEmp.role}</p>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => { setRecordTypeToAdd('VALE'); setIsAddRecordOpen(true); }} className="px-4 py-2 bg-red-950 text-white rounded-lg border border-red-800 text-[10px] uppercase font-bold hover:bg-gold hover:text-black hover:border-gold transition-colors">+ Lançar Vale/Despesa</button>
+                                                    <button onClick={() => { setRecordTypeToAdd('PAGAMENTO'); setIsAddRecordOpen(true); }} className="px-4 py-2 bg-emerald-900/40 text-emerald-400 rounded-lg border border-emerald-900/50 text-[10px] uppercase font-bold hover:bg-emerald-500 hover:text-black transition-colors">+ Acerto/Pagto</button>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="flex-grow overflow-y-auto custom-scrollbar space-y-3 pr-2">
+                                                {eRecords.map(rec => (
+                                                    <div key={rec.id} className="flex justify-between items-center p-4 bg-red-950/40 rounded-xl border border-white/5">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xs ${rec.type === 'VALE' || rec.type === 'DESPESA' ? 'bg-red-500/20 text-red-500' : 'bg-emerald-500/20 text-emerald-500'}`}>
+                                                                {rec.type === 'VALE' ? 'V' : rec.type === 'DESPESA' ? 'D' : 'P'}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-white text-sm">{rec.description}</div>
+                                                                <div className="text-[10px] text-white/40">{new Date(rec.timestamp).toLocaleString()} • {rec.type}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className={`font-mono font-bold ${rec.type === 'VALE' || rec.type === 'DESPESA' ? 'text-red-400' : 'text-emerald-400'}`}>
+                                                            {rec.type === 'VALE' || rec.type === 'DESPESA' ? '-' : '+'} R$ {rec.amount.toFixed(2)}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {eRecords.length === 0 && <div className="text-center py-10 text-white/30 italic">Nenhum registro para este funcionário.</div>}
+                                            </div>
+                                        </div>
+                                    ) : null;
+                                })() : (
+                                    <div className="h-full flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-[30px] p-10 text-center">
+                                        <div className="text-4xl mb-4 opacity-30">👤</div>
+                                        <h4 className="text-white font-bold text-xl mb-2">Nenhum funcionário selecionado</h4>
+                                        <p className="text-red-300/50 text-sm">Selecione um funcionário na lista ao lado para ver e lançar vales, despesas ou pagamentos.</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1444,6 +1546,69 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                     onClose={() => setOperationToDelete(null)}
                 />
             )}
+            
+            {/* Modal Novo Funcionário */}
+            {isAddEmployeeOpen && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-red-950 border-2 border-gold/20 rounded-[40px] p-8 max-w-sm w-full">
+                        <h3 className="text-2xl font-bold font-serif text-white mb-6">Novo Funcionário</h3>
+                        <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const fm = new FormData(e.currentTarget);
+                            const name = fm.get('name') as string;
+                            const role = fm.get('role') as string;
+                            if(name && role) {
+                                onAddEmployee({ id: crypto.randomUUID(), name, role, isActive: true });
+                                setIsAddEmployeeOpen(false);
+                            }
+                        }} className="space-y-4">
+                            <input name="name" required autoFocus className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-gold outline-none" placeholder="Nome Completo" />
+                            <input name="role" required className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-gold outline-none" placeholder="Cargo (Ex: Garçom, Cozinheiro)" />
+                            <div className="flex gap-2 mt-4">
+                                <button type="button" onClick={() => setIsAddEmployeeOpen(false)} className="flex-1 px-4 py-3 rounded-xl border border-white/10 text-white font-bold uppercase text-[10px] tracking-widest hover:bg-white/5">Cancelar</button>
+                                <button type="submit" className="flex-1 py-3 bg-gold text-black rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-yellow-500">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+            
+            {/* Modal Novo Registro Funcionário */}
+            {isAddRecordOpen && selectedEmployeeId && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-red-950 border-2 border-gold/20 rounded-[40px] p-8 max-w-sm w-full">
+                        <h3 className="text-2xl font-bold font-serif text-white mb-2">Lançar {recordTypeToAdd}</h3>
+                        <p className="text-xs text-red-300 mb-6 uppercase font-black">{employees.find(e => e.id === selectedEmployeeId)?.name}</p>
+                        <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const fm = new FormData(e.currentTarget);
+                            const desc = fm.get('desc') as string;
+                            const amount = parseFloat(fm.get('amount') as string);
+                            if(desc && amount && selectedEmployeeId) {
+                                onAddEmployeeRecord({
+                                    id: crypto.randomUUID(),
+                                    employeeId: selectedEmployeeId,
+                                    type: recordTypeToAdd,
+                                    amount,
+                                    description: desc,
+                                    timestamp: Date.now()
+                                });
+                                setIsAddRecordOpen(false);
+                            }
+                        }} className="space-y-4">
+                            <input name="desc" required autoFocus className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-gold outline-none" placeholder="Descrição (Ex: Vale Gás, Adiantamento...)" />
+                            <div className="relative">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50 font-bold">R$</span>
+                                <input name="amount" type="number" step="0.01" min="0.01" required className="w-full bg-black/30 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-white focus:border-gold outline-none font-mono" placeholder="0.00" />
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                                <button type="button" onClick={() => setIsAddRecordOpen(false)} className="flex-1 px-4 py-3 rounded-xl border border-white/10 text-white font-bold uppercase text-[10px] tracking-widest hover:bg-white/5">Cancelar</button>
+                                <button type="submit" className="flex-1 py-3 bg-gold text-black rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-yellow-500">Confirmar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1496,6 +1661,8 @@ function MainApp() {
   const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [payables, setPayables] = useState<Payable[]>([]); // Estado para contas a pagar
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeRecords, setEmployeeRecords] = useState<EmployeeRecord[]>([]);
   const [footerData, setFooterData] = useState<FooterData>(DEFAULT_FOOTER);
   const [loading, setLoading] = useState(true);
   
@@ -1550,6 +1717,13 @@ function MainApp() {
     setDailyRecords(data.dailyRecords);
     setExpenses(data.expenses);
     setPayables(data.payables || []); // Carrega contas
+    
+    // Add employees load
+    if (data.employeesData) {
+        setEmployees(data.employeesData.employees || []);
+        setEmployeeRecords(data.employeesData.records || []);
+    }
+    
     if(data.footerData) setFooterData(data.footerData);
     
     setLoading(false);
@@ -1725,6 +1899,42 @@ function MainApp() {
       await dbService.deletePayable(billToDelete);
       setPayables(prev => prev.filter(p => p.id !== billToDelete));
       setBillToDelete(null);
+  };
+
+  // --- Funções de Funcionários ---
+  const handleAddEmployee = async (emp: Employee) => {
+      const newEmployees = [...employees, emp];
+      setEmployees(newEmployees);
+      await dbService.saveEmployeesData({ employees: newEmployees, records: employeeRecords });
+  };
+  
+  const handleUpdateEmployee = async (emp: Employee) => {
+      const newEmployees = employees.map(e => e.id === emp.id ? emp : e);
+      setEmployees(newEmployees);
+      await dbService.saveEmployeesData({ employees: newEmployees, records: employeeRecords });
+  };
+  
+  const handleAddEmployeeRecord = async (record: EmployeeRecord) => {
+      const newRecords = [record, ...employeeRecords];
+      setEmployeeRecords(newRecords);
+      await dbService.saveEmployeesData({ employees, records: newRecords });
+      
+      // Se for vale ou despesa de funcionário e caixa aberto, lançar no caixa
+      if (currentSession && (record.type === 'VALE' || record.type === 'DESPESA' || record.type === 'PAGAMENTO')) {
+          const emp = employees.find(e => e.id === record.employeeId);
+          if (confirm(`Deseja lançar este ${record.type.toLowerCase()} (R$ ${record.amount.toFixed(2)}) no caixa atual?`)) {
+               const newExp: Expense = {
+                  id: crypto.randomUUID(),
+                  description: `${record.type}: ${emp?.name} - ${record.description}`,
+                  amount: record.amount,
+                  category: "Funcionários",
+                  timestamp: record.timestamp,
+                  sessionId: currentSession.id
+              };
+              await dbService.addExpense(newExp);
+              setExpenses(prev => [newExp, ...prev]);
+          }
+      }
   };
 
   const handleUpdateTable = async (updatedTable: Table) => {
@@ -1903,6 +2113,8 @@ function MainApp() {
                dailyRecords={dailyRecords}
                expenses={expenses}
                payables={payables}
+               employees={employees}
+               employeeRecords={employeeRecords}
                adminTab={adminTab}
                setAdminTab={setAdminTab}
                setEditingItemId={setEditingItemId}
@@ -1920,6 +2132,9 @@ function MainApp() {
                onOpenAddBill={() => setIsAddBillOpen(true)}
                onPayBill={handlePayBill}
                onDeleteBill={handleDeleteBill}
+               onAddEmployee={handleAddEmployee}
+               onUpdateEmployee={handleUpdateEmployee}
+               onAddEmployeeRecord={handleAddEmployeeRecord}
              />
           )}
        </main>

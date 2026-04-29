@@ -6,7 +6,7 @@ import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from '../constants';
 export const dbService = {
   // --- Inicialização e Carga ---
   async fetchAllData() {
-    const [menuRes, catsRes, tablesRes, cashierRes, recordsRes, expRes, payablesRes, settingsRes] = await Promise.all([
+    const [menuRes, catsRes, tablesRes, cashierRes, recordsRes, expRes, payablesRes, settingsRes, employeesDataRes] = await Promise.all([
       supabase.from('menu_items').select('*'),
       supabase.from('categories').select('*'),
       supabase.from('tables').select('*').order('id'),
@@ -14,7 +14,8 @@ export const dbService = {
       supabase.from('daily_records').select('*').order('closed_at', { ascending: false }),
       supabase.from('expenses').select('*').order('timestamp', { ascending: false }),
       supabase.from('payables').select('*').order('due_date', { ascending: true }),
-      supabase.from('settings').select('*').eq('key', 'footer_data').single()
+      supabase.from('settings').select('*').eq('key', 'footer_data').single(),
+      supabase.from('settings').select('*').eq('key', 'employees_data').maybeSingle()
     ]);
 
     // Seed inicial se estiver vazio
@@ -108,7 +109,8 @@ export const dbService = {
         status: p.status,
         paidAt: p.paid_at
       })) || [],
-      footerData: settingsRes.data?.value || null
+      footerData: settingsRes.data?.value || null,
+      employeesData: employeesDataRes.data?.value || { employees: [], records: [] }
     };
   },
 
@@ -232,6 +234,14 @@ export const dbService = {
     await supabase.from('settings').upsert({
       key: 'footer_data',
       value: data
+    });
+  },
+
+  // --- Funcionários ---
+  async saveEmployeesData(employeesData: { employees: any[], records: any[] }) {
+    await supabase.from('settings').upsert({
+      key: 'employees_data',
+      value: employeesData
     });
   }
 };

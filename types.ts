@@ -75,6 +75,22 @@ export interface Payable {
   paidAt?: number;
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  isActive: boolean;
+}
+
+export interface EmployeeRecord {
+  id: string;
+  employeeId: string;
+  type: 'VALE' | 'DESPESA' | 'PAGAMENTO';
+  amount: number;
+  description: string;
+  timestamp: number;
+}
+
 export interface CashierSession {
   id: string;
   openedAt: number;
