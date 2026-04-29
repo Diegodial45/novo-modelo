@@ -1084,70 +1084,122 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                 )}
                 
                 {adminTab === 'contas' && (
-                    <div className="space-y-8">
+                    <div className="space-y-6">
                         <div className="flex justify-between items-center">
                             <h3 className="text-2xl font-bold serif text-white">Contas a Pagar e Pagas</h3>
-                            <button onClick={onOpenAddBill} className="bg-gold text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 transition-transform">+ Lançar Conta</button>
+                            <button onClick={onOpenAddBill} className="bg-gold text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg hover:scale-105 transition-transform">+ Nova Conta</button>
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            {/* Pendentes */}
-                            <div className="bg-red-900/40 rounded-[30px] border border-white/5 p-6 flex flex-col h-[60vh]">
-                                <div className="flex justify-between items-center mb-4">
-                                     <h4 className="text-xl font-bold serif text-red-300 flex items-center gap-2">
-                                        <span>⚠️</span> Contas Pendentes / A Pagar
-                                    </h4>
-                                    <button onClick={onOpenAddBill} className="bg-red-950/50 border border-gold/30 text-gold hover:bg-gold hover:text-black px-3 py-2 rounded-lg text-[10px] font-black uppercase transition-all">
-                                        + Nova Conta
-                                    </button>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* Resumo Lateral */}
+                            <div className="md:col-span-1 space-y-4">
+                                <h4 className="text-lg font-bold text-red-300 uppercase tracking-widest text-[10px]">Resumo Financeiro</h4>
+                                
+                                <div className="bg-red-950/40 p-5 rounded-2xl border border-red-500/30">
+                                    <div className="text-[10px] uppercase text-red-400 font-bold mb-1">Total a Pagar (Pendentes)</div>
+                                    <div className="text-3xl font-mono text-white font-bold">R$ {pendingBills.reduce((a,b)=>a+b.amount,0).toFixed(2)}</div>
+                                    <div className="text-xs text-white/50 mt-2">{pendingBills.length} contas pendentes</div>
                                 </div>
-                                <div className="flex-grow overflow-y-auto custom-scrollbar space-y-3">
-                                    {pendingBills.map(bill => (
-                                        <div key={bill.id} className="bg-red-950/50 p-4 rounded-2xl border-l-4 border-red-500 flex flex-col gap-2">
-                                            <div className="flex justify-between items-start">
-                                                <span className="font-bold text-white text-lg">{bill.description}</span>
-                                                <button onClick={() => onDeleteBill(bill.id)} className="text-red-500 hover:text-red-300 text-xs font-bold">Excluir</button>
-                                            </div>
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <div className="text-[10px] uppercase text-red-400 font-black">Vencimento</div>
-                                                    <div className="font-mono text-sm">{new Date(bill.dueDate).toLocaleDateString()}</div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-xl font-bold font-mono text-white">R$ {bill.amount.toFixed(2)}</div>
-                                                </div>
-                                            </div>
-                                            <button 
-                                                onClick={() => onPayBill(bill)}
-                                                className="w-full py-3 mt-2 bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 rounded-xl font-bold uppercase text-[10px] hover:bg-emerald-600 hover:text-white transition-all"
-                                            >
-                                                ✅ Marcar como Paga
-                                            </button>
-                                        </div>
-                                    ))}
-                                    {pendingBills.length === 0 && <div className="text-center text-white/30 italic py-10">Nenhuma conta pendente.</div>}
+
+                                <div className="bg-emerald-950/20 p-5 rounded-2xl border border-emerald-500/20 shadow-inner">
+                                    <div className="text-[10px] uppercase text-emerald-400 font-bold mb-1">Total Pago (Histórico)</div>
+                                    <div className="text-3xl font-mono text-emerald-100 font-bold">R$ {paidBills.reduce((a,b)=>a+b.amount,0).toFixed(2)}</div>
+                                    <div className="text-xs text-white/50 mt-2">{paidBills.length} contas pagas</div>
+                                </div>
+                                
+                                <div className="bg-black/20 p-5 rounded-2xl border border-white/5">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+                                        <span className="text-xs font-bold text-white">Atenção</span>
+                                    </div>
+                                    <p className="text-[10px] text-white/60 leading-relaxed uppercase tracking-wide">
+                                        Contas atrasadas aparecerão destacadas em vermelho. Mantenha o caixa em dia!
+                                    </p>
                                 </div>
                             </div>
-
-                            {/* Pagas */}
-                            <div className="bg-emerald-900/10 rounded-[30px] border border-white/5 p-6 flex flex-col h-[60vh]">
-                                <h4 className="text-xl font-bold serif text-emerald-300 mb-4 flex items-center gap-2">
-                                    <span>📜</span> Histórico de Contas Pagas
-                                </h4>
-                                <div className="flex-grow overflow-y-auto custom-scrollbar space-y-3">
-                                    {paidBills.map(bill => (
-                                        <div key={bill.id} className="bg-emerald-950/30 p-4 rounded-2xl border-l-4 border-emerald-500 flex justify-between items-center opacity-70 hover:opacity-100 transition-opacity">
-                                            <div>
-                                                <div className="font-bold text-white">{bill.description}</div>
-                                                <div className="text-[10px] uppercase text-emerald-400 font-black">Pago em {bill.paidAt ? new Date(bill.paidAt).toLocaleDateString() : '-'}</div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-lg font-bold font-mono text-emerald-200">R$ {bill.amount.toFixed(2)}</div>
-                                                <div className="text-[9px] text-white/40">Venceu: {new Date(bill.dueDate).toLocaleDateString()}</div>
-                                            </div>
+                            
+                            {/* Lista Principal */}
+                            <div className="md:col-span-2 space-y-6">
+                                <div className="bg-red-900/30 border border-white/5 rounded-[30px] p-6 lg:p-8 flex flex-col h-[70vh]">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h4 className="text-xl font-bold serif text-red-300 flex items-center gap-2">
+                                            <span>📅</span> Lançamentos Relacionados
+                                        </h4>
+                                        <div className="text-[10px] uppercase font-bold text-white/40 bg-black/40 px-3 py-1 rounded-full">
+                                            {pendingBills.length + paidBills.length} Registros
                                         </div>
-                                    ))}
-                                    {paidBills.length === 0 && <div className="text-center text-white/30 italic py-10">Nenhuma conta paga registrada.</div>}
+                                    </div>
+                                    
+                                    <div className="flex-grow overflow-y-auto custom-scrollbar pr-2 space-y-8">
+                                        {/* Pendentes */}
+                                        {pendingBills.length > 0 && (
+                                            <div className="space-y-3">
+                                                <div className="text-[10px] uppercase tracking-widest text-white/50 font-black border-b border-white/10 pb-2">Pendentes</div>
+                                                {pendingBills.map(bill => {
+                                                    // Normalize the today date to start of day for comparison
+                                                    const today = new Date();
+                                                    today.setHours(0, 0, 0, 0);
+                                                    const isLate = bill.dueDate < today.getTime();
+                                                    
+                                                    return (
+                                                    <div key={bill.id} className={`p-4 rounded-xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:bg-white/5 ${isLate ? 'bg-red-950/80 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.15)] relative overflow-hidden' : 'bg-black/20 border-white/10'}`}>
+                                                        {isLate && <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>}
+                                                        
+                                                        <div className="flex-1 pl-2">
+                                                            <div className="flex items-center gap-3 mb-1">
+                                                                <span className={`font-bold text-lg ${isLate ? 'text-red-100' : 'text-white'}`}>{bill.description}</span>
+                                                                {isLate && <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-[9px] uppercase font-black border border-red-500/20">Atrasada</span>}
+                                                            </div>
+                                                            <div className="flex items-center gap-4 text-xs text-white/50">
+                                                                <span>Vence: <strong className={isLate ? 'text-red-400 font-bold' : 'text-white/80'}>{new Date(bill.dueDate).toLocaleDateString()}</strong></span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                                                            <div className="text-xl font-bold font-mono text-white">R$ {bill.amount.toFixed(2)}</div>
+                                                            <div className="flex gap-2">
+                                                                <button onClick={() => onPayBill(bill)} className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black flex items-center justify-center transition-colors border border-emerald-500/30" title="Marcar como Pago">✓</button>
+                                                                <button onClick={() => onDeleteBill(bill.id)} className="w-10 h-10 rounded-full bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors border border-red-500/20" title="Excluir">✕</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )})}
+                                            </div>
+                                        )}
+
+                                        {/* Pagas */}
+                                        {paidBills.length > 0 && (
+                                            <div className="space-y-3">
+                                                <div className="text-[10px] uppercase tracking-widest text-emerald-500/50 font-black border-b border-emerald-500/20 pb-2">Histórico Pagas</div>
+                                                {paidBills.map(bill => (
+                                                    <div key={bill.id} className="p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-emerald-950/10 border border-emerald-900/30 opacity-70 hover:opacity-100 transition-opacity">
+                                                        <div className="flex-1">
+                                                            <div className="font-bold text-white mb-1 line-through opacity-80 decoration-emerald-500/50">{bill.description}</div>
+                                                            <div className="flex items-center gap-4 text-[10px] text-white/40 uppercase">
+                                                                <span>Pago: <strong className="text-emerald-400">{bill.paidAt ? new Date(bill.paidAt).toLocaleDateString() : '-'}</strong></span>
+                                                                <span>Venceu: {new Date(bill.dueDate).toLocaleDateString()}</span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                                                            <div className="text-lg font-bold font-mono text-emerald-300">R$ {bill.amount.toFixed(2)}</div>
+                                                            <button onClick={() => onDeleteBill(bill.id)} className="w-8 h-8 rounded-full bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors text-xs" title="Excluir Histórico">✕</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        
+                                        {pendingBills.length === 0 && paidBills.length === 0 && (
+                                            <div className="text-center flex flex-col items-center justify-center text-white/30 italic py-20 border-2 border-dashed border-white/10 rounded-2xl h-64">
+                                                <div className="text-5xl mb-4 opacity-50 grayscale">🧾</div>
+                                                Nenhuma conta registrada.
+                                                <button onClick={onOpenAddBill} className="mt-4 px-4 py-2 border border-white/20 rounded-lg text-xs hover:bg-white/5 uppercase tracking-widest font-bold font-sans">
+                                                    Adicionar a Primeira
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
