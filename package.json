@@ -9,10 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "18.2.0",
     "@google/genai": "^1.35.0",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "2.39.0",
-    "react": "18.2.0"
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { MenuItem, AppMode, Table, TableItem, DailyRecord, Expense, CashierSession, FooterData, Payable, Employee, EmployeeRecord } from './types';
 import { INITIAL_MENU, CATEGORIES as INITIAL_CATEGORIES } from './constants';
 import { enhanceDescription } from './services/geminiService';
-import { dbService } from './services/db';
+import { dbService, SUPABASE_SQL_SCHEMA } from './services/db';
+import { testSupabaseConnection, ConnectionTestResult, getSupabaseConfig, saveSupabaseConfig, resetSupabaseConfig, DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_KEY } from './services/supabaseClient';
 
 // --- Type Definitions for Component Props ---
 
@@ -76,6 +77,8 @@ interface NavbarProps {
   onToggleCashier: () => void;
   onOpenQuickSale: () => void;
   onOpenExpense: () => void;
+  supabaseStatus: ConnectionTestResult;
+  onOpenSupabaseModal: () => void;
 }
 
 interface DigitalComandaProps {
@@ -97,7 +100,7 @@ interface MenuViewProps {
     activeTableId: number | null;
 }
 
-type AdminTabType = 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios' | 'contas' | 'funcionarios';
+type AdminTabType = 'menu' | 'categories' | 'stock' | 'footer' | 'caixa' | 'relatorios' | 'contas' | 'funcionarios' | 'banco';
 
 interface AdminPanelProps {
     items: MenuItem[];
@@ -129,6 +132,10 @@ interface AdminPanelProps {
     onAddEmployee: (emp: Employee) => void;
     onUpdateEmployee: (emp: Employee) => void;
     onAddEmployeeRecord: (record: EmployeeRecord) => void;
+    supabaseStatus: ConnectionTestResult;
+    onRefreshSupabase: () => Promise<void>;
+    onSyncSupabase: () => Promise<void>;
+    isSyncingSupabase: boolean;
 }
 
 
@@ -179,6 +186,240 @@ const AlertModal = ({ title, message, buttonText = "OK", onClose }: { title: str
             <button onClick={onClose} className="w-full py-4 rounded-xl bg-gold text-black font-bold">{buttonText}</button>
         </div>
     </div>
+);
+
+interface SupabaseManagerViewProps {
+  status: ConnectionTestResult;
+  onRefresh: () => Promise<void>;
+  onSync: () => Promise<void>;
+  isSyncing: boolean;
+  onClose?: () => void;
+}
+
+const SupabaseManagerView = ({ status, onRefresh, onSync, isSyncing, onClose }: SupabaseManagerViewProps) => {
+  const [config, setConfig] = useState(getSupabaseConfig());
+  const [urlInput, setUrlInput] = useState(config.url);
+  const [keyInput, setKeyInput] = useState(config.key);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [showSql, setShowSql] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  const handleSaveConfig = () => {
+    saveSupabaseConfig(urlInput, keyInput);
+    setConfig(getSupabaseConfig());
+    setSaveMsg("Configurações salvas!");
+    setTimeout(() => setSaveMsg(""), 3000);
+    onRefresh();
+  };
+
+  const handleResetConfig = () => {
+    resetSupabaseConfig();
+    const def = getSupabaseConfig();
+    setConfig(def);
+    setUrlInput(def.url);
+    setKeyInput(def.key);
+    setSaveMsg("Restaurado para padrão!");
+    setTimeout(() => setSaveMsg(""), 3000);
+    onRefresh();
+  };
+
+  const handleTest = async () => {
+    setIsTesting(true);
+    await onRefresh();
+    setIsTesting(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header & Status */}
+      <div className="bg-red-900/50 border border-white/10 p-6 rounded-3xl backdrop-blur-md">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+          <div>
+            <span className="text-[10px] font-black tracking-widest uppercase text-gold">Integração com Banco de Dados</span>
+            <h2 className="text-2xl font-bold text-white serif flex items-center gap-3">
+              <span>Conexão Supabase</span>
+              {status.status === 'connected' && (
+                <span className="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-3 py-1 rounded-full font-sans font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Conectado ({status.latencyMs || 0}ms)
+                </span>
+              )}
+              {status.status === 'table_missing' && (
+                <span className="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/40 px-3 py-1 rounded-full font-sans font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  Conectado (Criar Tabelas)
+                </span>
+              )}
+              {status.status !== 'connected' && status.status !== 'table_missing' && (
+                <span className="text-xs bg-red-500/20 text-red-300 border border-red-500/40 px-3 py-1 rounded-full font-sans font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                  Desconectado
+                </span>
+              )}
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTest}
+              disabled={isTesting}
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+            >
+              {isTesting ? "Testando..." : "↻ Testar Conexão"}
+            </button>
+            <button
+              onClick={onSync}
+              disabled={isSyncing}
+              className="px-4 py-2 bg-gold hover:bg-gold-light text-black rounded-xl text-xs font-black uppercase tracking-wider shadow-lg hover:scale-105 transition-all disabled:opacity-50"
+            >
+              {isSyncing ? "Sincronizando..." : "⬆ Sincronizar Dados"}
+            </button>
+          </div>
+        </div>
+
+        <p className="text-sm text-red-200/90 leading-relaxed bg-black/30 p-4 rounded-2xl border border-white/5">
+          {status.message}
+        </p>
+      </div>
+
+      {/* SQL Script Quick Setup Banner */}
+      <div className="bg-gradient-to-br from-amber-950/40 via-red-950/60 to-black/60 border border-gold/30 p-6 rounded-3xl shadow-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-gold serif mb-1">Como Adicionar o Projeto ao Supabase</h3>
+            <p className="text-xs text-red-200/80 leading-relaxed max-w-2xl">
+              1. Copie o script SQL abaixo clicando no botão dourado.<br />
+              2. Abra o <strong>SQL Editor</strong> no painel do seu Supabase.<br />
+              3. Cole e clique em <strong>Run</strong>. As tabelas serão criadas e o app se conectará imediatamente!
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 shrink-0">
+            <button
+              onClick={handleCopySql}
+              className={`px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg transition-all ${
+                copiedSql ? 'bg-emerald-500 text-white' : 'bg-gold hover:bg-gold/90 text-black hover:scale-105'
+              }`}
+            >
+              {copiedSql ? "✓ SQL Copiado!" : "📋 Copiar Script SQL"}
+            </button>
+            <a
+              href="https://supabase.com/dashboard/project/yzapwulavlcxcgrdhnzz/sql"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-gold border border-gold/30 rounded-xl text-[11px] font-bold uppercase tracking-wider text-center transition-all"
+            >
+              Abrir SQL Editor ↗
+            </a>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={() => setShowSql(!showSql)}
+            className="text-xs text-gold/80 hover:text-gold font-bold underline flex items-center gap-1"
+          >
+            {showSql ? "Ocultar código SQL" : "Visualizar código SQL completo das tabelas"}
+          </button>
+          {showSql && (
+            <pre className="mt-3 p-4 bg-black/70 rounded-2xl border border-white/10 text-[11px] font-mono text-emerald-300 max-h-64 overflow-y-auto custom-scrollbar whitespace-pre-wrap select-all">
+              {SUPABASE_SQL_SCHEMA}
+            </pre>
+          )}
+        </div>
+      </div>
+
+      {/* Credenciais Atuais */}
+      <div className="bg-red-900/30 border border-white/10 p-6 rounded-3xl">
+        <h3 className="text-lg font-bold text-white serif mb-4">Credenciais do Supabase</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-[10px] text-gold uppercase font-black block mb-1">URL do Projeto</label>
+            <input
+              type="text"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-gold outline-none font-mono"
+              placeholder="https://sua-url.supabase.co"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-gold uppercase font-black block mb-1">Chave Anon/Public (Publishable Key)</label>
+            <input
+              type="text"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-gold outline-none font-mono"
+              placeholder="sb_publishable_..."
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <button
+              onClick={handleResetConfig}
+              className="text-xs text-red-300 hover:text-white underline font-bold"
+            >
+              Restaurar Padrão
+            </button>
+            <div className="flex items-center gap-3">
+              {saveMsg && <span className="text-xs text-emerald-400 font-bold">{saveMsg}</span>}
+              <button
+                onClick={handleSaveConfig}
+                className="px-5 py-2.5 bg-gold text-black rounded-xl text-xs font-black uppercase tracking-wider hover:scale-105 transition-all shadow-lg"
+              >
+                Salvar Credenciais
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SupabaseConnectionModal = ({
+  status,
+  onRefresh,
+  onSync,
+  isSyncing,
+  onClose
+}: {
+  status: ConnectionTestResult;
+  onRefresh: () => Promise<void>;
+  onSync: () => Promise<void>;
+  isSyncing: boolean;
+  onClose: () => void;
+}) => (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md" onClick={onClose}></div>
+    <div className="relative bg-red-950 border-2 border-gold/40 w-full max-w-3xl rounded-[32px] p-8 shadow-2xl my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-6">
+        <h3 className="text-2xl font-bold text-white serif flex items-center gap-2">
+          <span>🗄️</span> Supabase Sertão Gourmet
+        </h3>
+        <button
+          onClick={onClose}
+          className="text-white/60 hover:text-white text-2xl font-bold w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
+        >
+          ✕
+        </button>
+      </div>
+
+      <SupabaseManagerView
+        status={status}
+        onRefresh={onRefresh}
+        onSync={onSync}
+        isSyncing={isSyncing}
+        onClose={onClose}
+      />
+    </div>
+  </div>
 );
 
 const AddBillModal = ({ onSave, onClose }: AddBillModalProps) => {
@@ -666,12 +907,21 @@ const EditItemModal = ({ item, categories, onSave, onClose }: EditItemModalProps
 
 // --- Main Application Components ---
 
-const Navbar = ({ mode, setMode, isCashierOpen, onToggleCashier, onOpenQuickSale, onOpenExpense }: NavbarProps) => {
+const Navbar = ({
+  mode,
+  setMode,
+  isCashierOpen,
+  onToggleCashier,
+  onOpenQuickSale,
+  onOpenExpense,
+  supabaseStatus,
+  onOpenSupabaseModal
+}: NavbarProps) => {
   return (
-    <nav className="bg-red-950/90 backdrop-blur-md border-b border-white/10 p-4 flex justify-between items-center sticky top-0 z-50">
+    <nav className="bg-red-950/90 backdrop-blur-md border-b border-white/10 p-4 flex flex-wrap justify-between items-center sticky top-0 z-50 gap-3">
       <div className="flex items-center gap-4">
         <h1 className="text-2xl font-bold text-gold serif tracking-wider">Sertão Gourmet</h1>
-        <div className="h-6 w-px bg-white/20 mx-2"></div>
+        <div className="h-6 w-px bg-white/20 mx-2 hidden sm:block"></div>
         <div className="flex gap-2">
             {[AppMode.VIEW, AppMode.TABLES, AppMode.ADMIN].map(m => (
                 <button 
@@ -685,8 +935,38 @@ const Navbar = ({ mode, setMode, isCashierOpen, onToggleCashier, onOpenQuickSale
         </div>
       </div>
       
-      <div className="flex items-center gap-3">
-         <div className={`px-3 py-1 rounded-lg border text-[10px] font-black uppercase flex items-center gap-2 ${isCashierOpen ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}`}>
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+         {/* Supabase Status Pill */}
+         <button
+           onClick={onOpenSupabaseModal}
+           title="Clique para gerenciar a integração com o Supabase"
+           className={`px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase flex items-center gap-2 transition-all hover:scale-105 ${
+             supabaseStatus.status === 'connected'
+               ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+               : supabaseStatus.status === 'table_missing'
+               ? 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+               : 'border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+           }`}
+         >
+           <div
+             className={`w-2 h-2 rounded-full ${
+               supabaseStatus.status === 'connected'
+                 ? 'bg-emerald-400 animate-pulse'
+                 : supabaseStatus.status === 'table_missing'
+                 ? 'bg-amber-400'
+                 : 'bg-red-400'
+             }`}
+           ></div>
+           <span>
+             {supabaseStatus.status === 'connected'
+               ? 'Supabase Ativo'
+               : supabaseStatus.status === 'table_missing'
+               ? 'Supabase: Criar Tabelas'
+               : 'Supabase Offline'}
+           </span>
+         </button>
+
+         <div className={`px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase flex items-center gap-2 ${isCashierOpen ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}`}>
             <div className={`w-2 h-2 rounded-full ${isCashierOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
             {isCashierOpen ? 'Caixa Aberto' : 'Caixa Fechado'}
          </div>
@@ -839,7 +1119,41 @@ const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, on
     );
 };
 
-const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payables, employees, employeeRecords, adminTab, setAdminTab, setEditingItemId, handleUpdateItem, handleAddCategory, handleRemoveCategory, handleUpdateStock, handleAddNewItem, footerData, setFooterData, currentSession, onOpenCashierClick, onCloseCashierClick, onDeleteOperation, onOpenAddOperation, onOpenAddBill, onPayBill, onDeleteBill, onAddEmployee, onUpdateEmployee, onAddEmployeeRecord }: AdminPanelProps) => {
+const AdminPanel = ({
+    items,
+    categories,
+    sessions,
+    dailyRecords,
+    expenses,
+    payables,
+    employees,
+    employeeRecords,
+    adminTab,
+    setAdminTab,
+    setEditingItemId,
+    handleUpdateItem,
+    handleAddCategory,
+    handleRemoveCategory,
+    handleUpdateStock,
+    handleAddNewItem,
+    footerData,
+    setFooterData,
+    currentSession,
+    onOpenCashierClick,
+    onCloseCashierClick,
+    onDeleteOperation,
+    onOpenAddOperation,
+    onOpenAddBill,
+    onPayBill,
+    onDeleteBill,
+    onAddEmployee,
+    onUpdateEmployee,
+    onAddEmployeeRecord,
+    supabaseStatus,
+    onRefreshSupabase,
+    onSyncSupabase,
+    isSyncingSupabase
+}: AdminPanelProps) => {
     
     // Add History View Toggle
     const [viewHistory, setViewHistory] = useState(false);
@@ -974,7 +1288,7 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
     const pendingBills = useMemo(() => payables.filter(p => p.status === 'PENDING').sort((a, b) => a.dueDate - b.dueDate), [payables]);
     const paidBills = useMemo(() => payables.filter(p => p.status === 'PAID').sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0)), [payables]);
 
-    const tabs: AdminTabType[] = ['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa', 'contas', 'funcionarios'];
+    const tabs: AdminTabType[] = ['menu', 'categories', 'stock', 'relatorios', 'footer', 'caixa', 'contas', 'funcionarios', 'banco'];
 
     return (
         <div className="flex h-full flex-col">
@@ -983,9 +1297,16 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                     <button 
                         key={t}
                         onClick={() => setAdminTab(t)}
-                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-gold/60 hover:text-gold hover:bg-white/5'}`}
+                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${adminTab === t ? 'border-gold text-white bg-white/5' : 'border-transparent text-gold/60 hover:text-gold hover:bg-white/5'}`}
                     >
-                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t === 'contas' ? 'Contas a Pagar' : t === 'funcionarios' ? 'Funcionários' : t.charAt(0).toUpperCase() + t.slice(1)}
+                        {t === 'caixa' ? 'Financeiro' : t === 'relatorios' ? 'Relatórios' : t === 'contas' ? 'Contas a Pagar' : t === 'funcionarios' ? 'Funcionários' : t === 'banco' ? (
+                            <span className="flex items-center gap-1.5">
+                                <span>🗄️ Supabase</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                    supabaseStatus.status === 'connected' ? 'bg-emerald-400' : supabaseStatus.status === 'table_missing' ? 'bg-amber-400' : 'bg-red-400'
+                                }`}></span>
+                            </span>
+                        ) : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                 ))}
             </div>
@@ -1585,6 +1906,15 @@ const AdminPanel = ({ items, categories, sessions, dailyRecords, expenses, payab
                         )}
                     </div>
                 )}
+
+                {adminTab === 'banco' && (
+                    <SupabaseManagerView
+                        status={supabaseStatus}
+                        onRefresh={onRefreshSupabase}
+                        onSync={onSyncSupabase}
+                        isSyncing={isSyncingSupabase}
+                    />
+                )}
             </div>
             {operationToDelete && (
                 <ConfirmModal
@@ -1748,7 +2078,39 @@ function MainApp() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('Todos');
 
+  // Supabase states
+  const [supabaseStatus, setSupabaseStatus] = useState<ConnectionTestResult>({
+    connected: false,
+    status: 'testing',
+    message: 'Verificando conexão com o Supabase...'
+  });
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
+
+  const checkSupabase = async () => {
+    try {
+      const res = await testSupabaseConnection();
+      setSupabaseStatus(res);
+    } catch (e: any) {
+      setSupabaseStatus({
+        connected: false,
+        status: 'disconnected',
+        message: 'Erro ao verificar conexão com o Supabase.'
+      });
+    }
+  };
+
+  const handleSyncSupabase = async () => {
+    setIsSyncingSupabase(true);
+    const res = await dbService.syncLocalToSupabase();
+    setIsSyncingSupabase(false);
+    setAlertMessage(res.message);
+    await checkSupabase();
+    await loadData();
+  };
+
   useEffect(() => {
+    checkSupabase();
     loadData();
   }, []);
 
@@ -2127,6 +2489,8 @@ function MainApp() {
          onToggleCashier={() => currentSession ? setIsClosingCashier(true) : setIsOpeningCashier(true)}
          onOpenQuickSale={() => setIsQuickSaleOpen(true)}
          onOpenExpense={() => setIsExpenseOpen(true)}
+         supabaseStatus={supabaseStatus}
+         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
        />
        
        <main className="flex-grow overflow-hidden relative">
@@ -2187,6 +2551,10 @@ function MainApp() {
                onAddEmployee={handleAddEmployee}
                onUpdateEmployee={handleUpdateEmployee}
                onAddEmployeeRecord={handleAddEmployeeRecord}
+               supabaseStatus={supabaseStatus}
+               onRefreshSupabase={checkSupabase}
+               onSyncSupabase={handleSyncSupabase}
+               isSyncingSupabase={isSyncingSupabase}
              />
           )}
        </main>
@@ -2264,6 +2632,16 @@ function MainApp() {
                confirmText="Excluir"
                onConfirm={executeDeleteBill}
                onClose={() => setBillToDelete(null)}
+           />
+       )}
+
+       {isSupabaseModalOpen && (
+           <SupabaseConnectionModal
+               status={supabaseStatus}
+               onRefresh={checkSupabase}
+               onSync={handleSyncSupabase}
+               isSyncing={isSyncingSupabase}
+               onClose={() => setIsSupabaseModalOpen(false)}
            />
        )}
     </div>
