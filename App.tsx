@@ -59,6 +59,7 @@ interface CustomerNameModalProps {
 
 interface ItemSelectorModalProps {
   items: MenuItem[];
+  categories?: string[];
   onAddItem: (item: MenuItem) => void;
   onClose: () => void;
 }
@@ -89,6 +90,8 @@ interface DigitalComandaProps {
     onOpenItemSelector: () => void;
     onOpenPayment: (table: Table) => void;
     onUpdateQty: (tableId: number, itemId: string, delta: number) => void;
+    onTransferTable?: (fromTableId: number, toTableId: number) => void;
+    onClearTable?: (tableId: number) => void;
 }
 
 interface MenuViewProps {
@@ -618,25 +621,137 @@ const CloseCashierModal = ({ session, records, expenses, onConfirm, onClose }: C
   );
 };
 
-const ItemSelectorModal = ({ items, onAddItem, onClose }: ItemSelectorModalProps) => {
+const ItemSelectorModal = ({ items, categories = [], onAddItem, onClose }: ItemSelectorModalProps) => {
   const [search, setSearch] = useState("");
-  const filtered = items.filter(i => i.isAvailable && i.name.toLowerCase().includes(search.toLowerCase()));
+  const [selectedCat, setSelectedCat] = useState("TODAS");
+
+  const availableCategories = useMemo(() => {
+    if (categories && categories.length > 0) {
+      return ['TODAS', ...categories];
+    }
+    const cats = Array.from(new Set(items.map(i => i.category || 'Geral')));
+    return ['TODAS', ...cats];
+  }, [categories, items]);
+
+  const filtered = useMemo(() => {
+    return items.filter(i => {
+      const matchesAvail = i.isAvailable !== false;
+      const matchesSearch = i.name.toLowerCase().includes(search.toLowerCase()) || 
+                            (i.description && i.description.toLowerCase().includes(search.toLowerCase()));
+      const matchesCat = selectedCat === 'TODAS' || i.category === selectedCat;
+      return matchesAvail && matchesSearch && matchesCat;
+    });
+  }, [items, search, selectedCat]);
+
   return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 animate-fade-in">
-      <div className="absolute inset-0 bg-red-950/98" onClick={onClose}></div>
-      <div className="relative bg-red-900 border border-gold/20 w-full max-w-4xl h-[80vh] rounded-[50px] overflow-hidden flex flex-col">
-        <header className="p-8 border-b border-white/10 bg-red-800/50">
-          <input placeholder="Procurar prato..." value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-red-950 border border-white/10 rounded-2xl px-6 py-4 text-white" autoFocus />
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-3 sm:p-6 animate-fade-in backdrop-blur-sm">
+      <div className="absolute inset-0 bg-red-950/90" onClick={onClose}></div>
+      <div className="relative bg-gradient-to-b from-red-900 via-red-950 to-red-950 border border-gold/30 w-full max-w-4xl h-[85vh] rounded-[32px] overflow-hidden flex flex-col shadow-2xl shadow-black/80">
+        
+        {/* Header */}
+        <header className="p-6 border-b border-white/10 bg-red-900/60 flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-2xl font-bold serif text-white tracking-wide">Adicionar ao Pedido</h3>
+              <p className="text-red-300 text-xs mt-0.5">Selecione pratos, petiscos e bebidas para lançar na comanda</p>
+            </div>
+            <button 
+              onClick={onClose} 
+              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Search bar */}
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40">🔍</span>
+            <input 
+              placeholder="Pesquisar por prato, ingrediente ou bebida..." 
+              value={search} 
+              onChange={e => setSearch(e.target.value)} 
+              className="w-full bg-red-950/80 border border-white/10 focus:border-gold rounded-2xl pl-12 pr-10 py-3.5 text-white placeholder-white/40 outline-none text-sm transition-all shadow-inner" 
+              autoFocus 
+            />
+            {search && (
+              <button 
+                onClick={() => setSearch("")} 
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Categories Tab Bar */}
+          <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+            {availableCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCat(cat)}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold tracking-wider uppercase whitespace-nowrap transition-all ${
+                  selectedCat === cat 
+                    ? 'bg-gold text-black shadow-md shadow-gold/20' 
+                    : 'bg-white/5 text-red-200 hover:bg-white/10 border border-white/5'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </header>
-        <div className="flex-grow overflow-y-auto p-8 grid grid-cols-2 md:grid-cols-3 gap-6 custom-scrollbar">
+
+        {/* Items Grid */}
+        <div className="flex-grow overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 custom-scrollbar">
           {filtered.map(item => (
-            <button key={item.id} onClick={() => onAddItem(item)} className="bg-red-800/50 p-6 rounded-3xl border border-white/5 hover:border-gold transition-all text-left">
-              <span className="font-bold text-white mb-1 truncate serif block">{item.name}</span>
-              <span className="text-gold font-black text-sm block">R$ {item.price.toFixed(2)}</span>
+            <button 
+              key={item.id} 
+              onClick={() => onAddItem(item)} 
+              className="group bg-red-900/30 hover:bg-red-800/40 p-4 rounded-2xl border border-white/5 hover:border-gold/50 transition-all text-left flex gap-3.5 items-center relative overflow-hidden active:scale-95"
+            >
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-red-950 flex-shrink-0 border border-white/5 relative">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-xl bg-red-950 text-gold/60 font-serif">
+                    🍴
+                  </div>
+                )}
+              </div>
+              <div className="flex-grow min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[10px] font-bold text-red-300 uppercase tracking-widest truncate">{item.category}</span>
+                  {typeof item.stock === 'number' && item.stock <= 5 && (
+                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-mono">Restam {item.stock}</span>
+                  )}
+                </div>
+                <span className="font-bold text-white text-sm truncate serif block group-hover:text-gold transition-colors">{item.name}</span>
+                <span className="text-gold font-bold text-sm block mt-1">R$ {item.price.toFixed(2)}</span>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 group-hover:bg-emerald-500 group-hover:text-black flex items-center justify-center font-bold text-base transition-colors flex-shrink-0">
+                +
+              </div>
             </button>
           ))}
+          {filtered.length === 0 && (
+            <div className="col-span-full py-16 text-center text-red-300/60">
+              <div className="text-4xl mb-3">🔍</div>
+              <div className="text-base font-bold text-white mb-1">Nenhum item encontrado</div>
+              <div className="text-xs">Tente buscar por outro termo ou selecione outra categoria</div>
+            </div>
+          )}
         </div>
-        <footer className="p-6 border-t border-white/10 text-center"><button onClick={onClose} className="text-gold font-black uppercase text-[10px]">Fechar</button></footer>
+
+        {/* Footer */}
+        <footer className="p-4 border-t border-white/10 bg-red-950/80 flex justify-between items-center px-6">
+          <span className="text-xs text-red-300/70">{filtered.length} pratos/bebidas disponíveis</span>
+          <button 
+            onClick={onClose} 
+            className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider transition-colors"
+          >
+            Concluir
+          </button>
+        </footer>
       </div>
     </div>
   );
@@ -1033,88 +1148,864 @@ const MenuView = ({ items, categories, activeCategory, setActiveCategory, onAdd,
     );
 };
 
-const DigitalComanda = ({ tables, activeTableId, onSelectTable, onOpenNaming, onOpenItemSelector, onOpenPayment, onUpdateQty }: DigitalComandaProps) => {
-    const activeTable = tables.find(t => t.id === activeTableId);
+const DigitalComanda = ({ 
+    tables, 
+    activeTableId, 
+    onSelectTable, 
+    onOpenNaming, 
+    onOpenItemSelector, 
+    onOpenPayment, 
+    onUpdateQty,
+    onTransferTable,
+    onClearTable 
+}: DigitalComandaProps) => {
+    const [searchQuery, setSearchQuery] = useState("");
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'FREE'>('ALL');
+    const [currentTime, setCurrentTime] = useState(Date.now());
+    const [splitPeople, setSplitPeople] = useState<number>(1);
+    const [includeService, setIncludeService] = useState<boolean>(false);
     
+    // Modals internal to comanda
+    const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+    const [isTransferOpen, setIsTransferOpen] = useState(false);
+    const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+    const [transferTargetId, setTransferTargetId] = useState<number | null>(null);
+    const [copiedNotification, setCopiedNotification] = useState(false);
+
+    // Keep elapsed time updated every 30 seconds
+    useEffect(() => {
+        const interval = setInterval(() => setCurrentTime(Date.now()), 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const activeTable = useMemo(() => tables.find(t => t.id === activeTableId), [tables, activeTableId]);
+
+    // Metrics computation
+    const metrics = useMemo(() => {
+        const total = tables.length;
+        const occupied = tables.filter(t => t.isActive).length;
+        const free = total - occupied;
+        const occupancyRate = total > 0 ? Math.round((occupied / total) * 100) : 0;
+        const totalOpenRevenue = tables.reduce((acc, t) => {
+            if (!t.isActive) return acc;
+            return acc + t.items.reduce((s, i) => s + (i.price * i.quantity), 0);
+        }, 0);
+        const totalOpenItems = tables.reduce((acc, t) => {
+            if (!t.isActive) return acc;
+            return acc + t.items.reduce((s, i) => s + i.quantity, 0);
+        }, 0);
+        return { total, occupied, free, occupancyRate, totalOpenRevenue, totalOpenItems };
+    }, [tables]);
+
+    // Filter tables
+    const filteredTables = useMemo(() => {
+        return tables.filter(table => {
+            // Status filter
+            if (statusFilter === 'ACTIVE' && !table.isActive) return false;
+            if (statusFilter === 'FREE' && table.isActive) return false;
+
+            // Search query filter (matches table id, customer name, or items)
+            if (searchQuery.trim()) {
+                const query = searchQuery.toLowerCase().trim();
+                const matchesId = table.id.toString() === query || 
+                                  `mesa ${table.id}`.includes(query) || 
+                                  table.id.toString().padStart(2, '0') === query;
+                const matchesCustomer = table.customerName?.toLowerCase().includes(query);
+                const matchesItem = table.items.some(i => i.name.toLowerCase().includes(query));
+                return matchesId || matchesCustomer || matchesItem;
+            }
+
+            return true;
+        });
+    }, [tables, statusFilter, searchQuery]);
+
+    // Format elapsed time
+    const formatElapsed = (openedAt?: number) => {
+        if (!openedAt) return null;
+        const diffMs = Math.max(0, currentTime - openedAt);
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 1) return 'Agora mesmo';
+        if (mins < 60) return `${mins} min`;
+        const hours = Math.floor(mins / 60);
+        const remainMins = mins % 60;
+        return `${hours}h ${remainMins > 0 ? `${remainMins}m` : ''}`;
+    };
+
+    // Calculate totals for active table
+    const tableSubtotal = useMemo(() => {
+        if (!activeTable) return 0;
+        return activeTable.items.reduce((a, b) => a + (b.price * b.quantity), 0);
+    }, [activeTable]);
+
+    const serviceTax = useMemo(() => tableSubtotal * 0.10, [tableSubtotal]);
+    const finalTotal = useMemo(() => includeService ? tableSubtotal + serviceTax : tableSubtotal, [tableSubtotal, serviceTax, includeService]);
+    const perPerson = useMemo(() => splitPeople > 0 ? finalTotal / splitPeople : finalTotal, [finalTotal, splitPeople]);
+
+    // Handle receipt text copy
+    const handleCopyReceipt = () => {
+        if (!activeTable) return;
+        const lines: string[] = [
+            `*SERTÃO GOURMET - CONFERÊNCIA DE MESA*`,
+            `Mesa: ${activeTable.id.toString().padStart(2, '0')}`,
+            `Cliente: ${activeTable.customerName || 'Não identificado'}`,
+            `Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+            `--------------------------------`,
+            ...activeTable.items.map(i => `${i.quantity}x ${i.name} - R$ ${(i.price * i.quantity).toFixed(2)}`),
+            `--------------------------------`,
+            `Subtotal: R$ ${tableSubtotal.toFixed(2)}`,
+            `Taxa de Serviço (10% sugerida): R$ ${serviceTax.toFixed(2)}`,
+            `Total Geral: R$ ${(tableSubtotal + serviceTax).toFixed(2)}`,
+            splitPeople > 1 ? `Divisão (${splitPeople} pessoas): R$ ${( (tableSubtotal + serviceTax) / splitPeople ).toFixed(2)} / pessoa` : ``,
+            `--------------------------------`,
+            `Agradecemos a preferência!`
+        ].filter(Boolean);
+
+        navigator.clipboard.writeText(lines.join('\n')).then(() => {
+            setCopiedNotification(true);
+            setTimeout(() => setCopiedNotification(false), 2500);
+        });
+    };
+
     return (
-        <div className="flex h-full">
-            <div className="w-2/3 p-8 overflow-y-auto grid grid-cols-3 gap-6 content-start custom-scrollbar">
-                {tables.map(table => (
-                    <button 
-                        key={table.id} 
-                        onClick={() => onSelectTable(table.id)}
-                        className={`p-6 rounded-[30px] border-2 transition-all relative overflow-hidden ${
-                            table.isActive 
-                                ? activeTableId === table.id ? 'bg-emerald-900/40 border-gold' : 'bg-emerald-900/20 border-emerald-500/30'
-                                : activeTableId === table.id ? 'bg-white/5 border-gold' : 'bg-white/5 border-white/5'
-                        }`}
-                    >
-                        <div className="flex justify-between items-start mb-4">
-                            <span className="text-2xl font-black text-white opacity-50">{table.id.toString().padStart(2, '0')}</span>
-                            {table.isActive && <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"></div>}
-                        </div>
-                        <div className="text-left">
-                            <div className="font-bold text-white text-lg truncate">{table.customerName || 'Livre'}</div>
-                            {table.isActive && (
-                                <div className="text-emerald-400 text-xs font-mono mt-1">
-                                    R$ {table.items.reduce((a, b) => a + (b.price * b.quantity), 0).toFixed(2)}
-                                </div>
-                            )}
-                        </div>
-                    </button>
-                ))}
-            </div>
+        <div className="flex flex-col h-full overflow-hidden bg-gradient-to-b from-[#380808] to-[#250404] text-white">
             
-            <div className="w-1/3 bg-red-950/50 border-l border-white/5 flex flex-col">
-                {activeTable ? (
-                    <>
-                        <header className="p-8 border-b border-white/5 bg-red-900/20">
-                            <div className="flex justify-between items-start mb-2">
-                                <h2 className="text-3xl font-bold serif text-white">Mesa {activeTable.id}</h2>
-                                <button onClick={() => onOpenNaming(activeTable.id)} className="text-gold text-[10px] font-black uppercase hover:underline">Editar Nome</button>
-                            </div>
-                            <div className="text-red-200 text-sm">{activeTable.customerName || 'Sem cliente identificado'}</div>
-                        </header>
-                        
-                        <div className="flex-grow overflow-y-auto p-6 space-y-3 custom-scrollbar">
-                            {activeTable.items.map(item => (
-                                <div key={item.menuItemId} className="flex justify-between items-center bg-red-900/30 p-4 rounded-2xl border border-white/5">
-                                    <div className="flex-grow pr-2">
-                                        <div className="text-white font-bold text-sm line-clamp-1">{item.name}</div>
-                                        <div className="text-gold text-xs">R$ {(item.price * item.quantity).toFixed(2)}</div>
-                                    </div>
-                                    <div className="flex items-center gap-3 bg-red-950 px-2 py-1 rounded-xl border border-white/5">
-                                        <button onClick={() => onUpdateQty(activeTable.id, item.menuItemId, -1)} className="text-red-400 hover:text-white">-</button>
-                                        <span className="text-xs font-black w-4 text-center">{item.quantity}</span>
-                                        <button onClick={() => onUpdateQty(activeTable.id, item.menuItemId, 1)} className="text-emerald-400 hover:text-white">+</button>
-                                    </div>
-                                </div>
-                            ))}
-                            {activeTable.items.length === 0 && (
-                                <div className="text-center text-red-400/50 py-10 italic">Nenhum item lançado</div>
-                            )}
-                        </div>
-                        
-                        <footer className="p-6 border-t border-white/5 bg-red-900/30 space-y-3">
-                            <div className="flex justify-between items-end mb-2">
-                                <span className="text-[10px] font-black uppercase text-red-300">Total da Mesa</span>
-                                <span className="text-3xl font-bold text-gold serif">R$ {activeTable.items.reduce((a, b) => a + (b.price * b.quantity), 0).toFixed(2)}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={onOpenItemSelector} className="py-4 bg-emerald-600 text-white font-bold rounded-xl text-[10px] uppercase shadow-lg shadow-emerald-900/50 hover:scale-105 transition-transform">Adicionar Item</button>
-                                <button onClick={() => onOpenPayment(activeTable)} disabled={activeTable.items.length === 0} className="py-4 bg-gold text-black font-bold rounded-xl text-[10px] uppercase shadow-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:scale-100">Fechar Conta</button>
-                            </div>
-                        </footer>
-                    </>
-                ) : (
-                    <div className="flex-grow flex items-center justify-center text-red-400/30 text-center p-10">
+            {/* Top Stat & Control Console */}
+            <div className="p-4 sm:p-6 border-b border-white/10 bg-red-950/70 backdrop-blur-md flex-shrink-0 space-y-4">
+                
+                {/* Metrics Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                    <div className="bg-red-900/30 border border-white/5 rounded-2xl p-3.5 flex items-center justify-between">
                         <div>
-                            <div className="text-4xl mb-4">🍽️</div>
-                            <div className="text-sm font-bold uppercase tracking-widest">Selecione uma mesa</div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-300/80 block">Total de Mesas</span>
+                            <span className="text-2xl font-black text-white">{metrics.total}</span>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xl">
+                            🪑
                         </div>
                     </div>
-                )}
+
+                    <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 flex items-center justify-between">
+                        <div>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="flex h-2 w-2 relative">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">Ocupadas ({metrics.occupancyRate}%)</span>
+                            </div>
+                            <span className="text-2xl font-black text-emerald-300">{metrics.occupied}</span>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-xl text-emerald-400">
+                            👥
+                        </div>
+                    </div>
+
+                    <div className="bg-red-900/30 border border-white/5 rounded-2xl p-3.5 flex items-center justify-between">
+                        <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-300/80 block">Mesas Livres</span>
+                            <span className="text-2xl font-black text-white">{metrics.free}</span>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xl text-white/50">
+                            ✨
+                        </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-amber-950/40 to-red-900/30 border border-gold/30 rounded-2xl p-3.5 flex items-center justify-between">
+                        <div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gold/90 block">Consumo em Aberto</span>
+                            <span className="text-2xl font-black text-gold serif">R$ {metrics.totalOpenRevenue.toFixed(2)}</span>
+                            <span className="text-[10px] text-red-300/70 block mt-0.5">{metrics.totalOpenItems} itens servidos</span>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center text-xl text-gold">
+                            💳
+                        </div>
+                    </div>
+                </div>
+
+                {/* Filters, Search & Action Bar */}
+                <div className="flex flex-col sm:flex-row gap-3 justify-between items-center">
+                    
+                    {/* Status Tabs */}
+                    <div className="flex bg-red-950/90 p-1 rounded-2xl border border-white/10 w-full sm:w-auto">
+                        <button
+                            onClick={() => setStatusFilter('ALL')}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all uppercase tracking-wider flex items-center gap-1.5 ${
+                                statusFilter === 'ALL' 
+                                    ? 'bg-gold text-black shadow-md shadow-gold/20' 
+                                    : 'text-red-200/80 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <span>Todas</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{metrics.total}</span>
+                        </button>
+                        <button
+                            onClick={() => setStatusFilter('ACTIVE')}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all uppercase tracking-wider flex items-center gap-1.5 ${
+                                statusFilter === 'ACTIVE' 
+                                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/40' 
+                                    : 'text-red-200/80 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            <span>Ocupadas</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{metrics.occupied}</span>
+                        </button>
+                        <button
+                            onClick={() => setStatusFilter('FREE')}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all uppercase tracking-wider flex items-center gap-1.5 ${
+                                statusFilter === 'FREE' 
+                                    ? 'bg-white/20 text-white' 
+                                    : 'text-red-200/80 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <span>Livres</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">{metrics.free}</span>
+                        </button>
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative w-full sm:w-80">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40 text-sm">🔍</span>
+                        <input
+                            type="text"
+                            placeholder="Buscar mesa, cliente ou prato..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full bg-red-950/80 border border-white/10 focus:border-gold rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white placeholder-white/40 outline-none transition-all shadow-inner"
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => setSearchQuery("")}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Quick Selected Indicator */}
+                    {activeTable && (
+                        <div className="hidden lg:flex items-center gap-2 bg-gold/10 border border-gold/30 px-3 py-1.5 rounded-xl">
+                            <span className="text-xs text-gold font-bold">Mesa {activeTable.id.toString().padStart(2, '0')} ativa</span>
+                            <button 
+                                onClick={() => onSelectTable(0)} 
+                                className="text-white/60 hover:text-white text-xs ml-1"
+                                title="Desmarcar seleção"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Main Area: Split Screen (Left Grid / Right Comanda Drawer) */}
+            <div className="flex-grow flex overflow-hidden flex-col md:flex-row">
+                
+                {/* Tables Grid (Left / Main Pane) */}
+                <div className="flex-1 p-4 sm:p-6 overflow-y-auto custom-scrollbar">
+                    {filteredTables.length === 0 ? (
+                        <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center p-8 text-red-300/60">
+                            <div className="text-5xl mb-3">🍽️</div>
+                            <h3 className="text-lg font-bold text-white mb-1">Nenhuma mesa encontrada</h3>
+                            <p className="text-xs max-w-sm">Nenhuma mesa corresponde aos filtros atuais. Tente limpar a busca ou mudar o filtro de ocupação.</p>
+                            {(searchQuery || statusFilter !== 'ALL') && (
+                                <button
+                                    onClick={() => { setSearchQuery(""); setStatusFilter('ALL'); }}
+                                    className="mt-4 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all"
+                                >
+                                    Limpar Filtros
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {filteredTables.map(table => {
+                                const isSelected = activeTableId === table.id;
+                                const total = table.items.reduce((a, b) => a + (b.price * b.quantity), 0);
+                                const totalItems = table.items.reduce((a, b) => a + b.quantity, 0);
+                                const elapsed = formatElapsed(table.openedAt);
+
+                                return (
+                                    <div
+                                        key={table.id}
+                                        onClick={() => onSelectTable(table.id)}
+                                        className={`group relative text-left rounded-[26px] p-5 border-2 transition-all cursor-pointer flex flex-col justify-between overflow-hidden shadow-lg ${
+                                            isSelected
+                                                ? 'bg-gradient-to-br from-red-900/80 via-red-900/50 to-red-950 border-gold shadow-[0_0_25px_rgba(212,175,55,0.25)] ring-2 ring-gold/40 scale-[1.01]'
+                                                : table.isActive
+                                                    ? 'bg-gradient-to-br from-emerald-950/40 via-red-900/20 to-red-950/60 border-emerald-500/40 hover:border-emerald-400 hover:shadow-emerald-900/20'
+                                                    : 'bg-red-950/40 border-white/5 hover:border-white/20 hover:bg-white/[0.04]'
+                                        }`}
+                                    >
+                                        {/* Card Top Row */}
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-2xl font-black tracking-tight serif ${isSelected ? 'text-gold' : 'text-white'}`}>
+                                                    Mesa {table.id.toString().padStart(2, '0')}
+                                                </span>
+                                            </div>
+
+                                            {/* Status Badge */}
+                                            {table.isActive ? (
+                                                <div className="flex items-center gap-1.5 bg-emerald-950/80 border border-emerald-500/40 px-2.5 py-1 rounded-full shadow-sm">
+                                                    <span className="flex h-2 w-2 relative">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                                    </span>
+                                                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Ocupada</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-1 bg-white/5 border border-white/10 px-2.5 py-1 rounded-full">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500"></span>
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Livre</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Card Body: Customer & Items Preview */}
+                                        <div className="space-y-2 mb-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="font-bold text-sm text-white truncate max-w-[170px]">
+                                                    {table.isActive ? (table.customerName || `Cliente Mesa ${table.id}`) : 'Mesa Disponível'}
+                                                </div>
+                                                {table.isActive && elapsed && (
+                                                    <span className="text-[10px] font-mono text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                                        ⏱ {elapsed}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {/* Items mini list preview if active */}
+                                            {table.isActive && table.items.length > 0 && (
+                                                <div className="text-[11px] text-red-200/70 space-y-0.5 bg-black/20 p-2 rounded-xl border border-white/5">
+                                                    <div className="flex justify-between items-center text-[10px] text-white/50 mb-1">
+                                                        <span>{totalItems} item(ns) lançado(s)</span>
+                                                    </div>
+                                                    <div className="truncate text-white/90">
+                                                        {table.items.slice(0, 2).map((item, idx) => (
+                                                            <span key={item.menuItemId} className="mr-1.5">
+                                                                {item.quantity}x {item.name}{idx < Math.min(table.items.length - 1, 1) ? ',' : ''}
+                                                            </span>
+                                                        ))}
+                                                        {table.items.length > 2 && (
+                                                            <span className="text-gold font-bold">+{table.items.length - 2} outros</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {!table.isActive && (
+                                                <div className="text-[11px] text-white/40 italic py-1">
+                                                    Toque para abrir a comanda desta mesa
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Card Footer: Total & CTA */}
+                                        <div className="pt-3 border-t border-white/5 flex items-center justify-between">
+                                            <div>
+                                                <span className="text-[9px] uppercase tracking-wider text-red-300/70 block">Total</span>
+                                                <span className={`text-lg font-bold font-mono ${table.isActive ? 'text-gold serif' : 'text-zinc-500'}`}>
+                                                    R$ {total.toFixed(2)}
+                                                </span>
+                                            </div>
+                                            <div className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                                isSelected 
+                                                    ? 'bg-gold text-black shadow-md shadow-gold/30' 
+                                                    : table.isActive 
+                                                        ? 'bg-white/10 text-white group-hover:bg-gold group-hover:text-black' 
+                                                        : 'bg-white/5 text-white/60 group-hover:bg-white/20 group-hover:text-white'
+                                            }`}>
+                                                {table.isActive ? 'Gerenciar' : 'Abrir +'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Comanda Workspace (Right Pane) */}
+                <div className="w-full md:w-[420px] lg:w-[460px] bg-gradient-to-b from-red-950 via-[#300505] to-red-950 border-t md:border-t-0 md:border-l border-white/10 flex flex-col flex-shrink-0 shadow-2xl relative z-10">
+                    {activeTable ? (
+                        <>
+                            {/* Comanda Header */}
+                            <header className="p-5 sm:p-6 border-b border-white/10 bg-gradient-to-r from-red-900/40 via-red-900/20 to-red-950 flex flex-col gap-3">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h2 className="text-3xl font-bold serif text-white tracking-wide">
+                                                Mesa {activeTable.id.toString().padStart(2, '0')}
+                                            </h2>
+                                            {activeTable.isActive ? (
+                                                <span className="text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                                                    Ativa
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-bold uppercase bg-white/10 text-zinc-300 px-2 py-0.5 rounded-full">
+                                                    Sem Consumo
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Customer name and edit trigger */}
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-red-200 text-sm font-semibold truncate max-w-[200px]">
+                                                👤 {activeTable.customerName || 'Cliente não identificado'}
+                                            </span>
+                                            <button 
+                                                onClick={() => onOpenNaming(activeTable.id)} 
+                                                className="text-gold text-[10px] font-black uppercase hover:underline bg-gold/10 hover:bg-gold/20 px-2 py-0.5 rounded-lg border border-gold/20 transition-colors"
+                                            >
+                                                Editar Nome
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Elapsed Time Badge */}
+                                    {activeTable.isActive && activeTable.openedAt && (
+                                        <div className="text-right">
+                                            <span className="text-[9px] uppercase tracking-wider text-red-300/70 block">Tempo Aberta</span>
+                                            <span className="text-xs font-mono font-bold text-amber-300">
+                                                ⏱ {formatElapsed(activeTable.openedAt)}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Operational Action Pills Toolbar */}
+                                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+                                    <button
+                                        onClick={() => setIsTransferOpen(true)}
+                                        disabled={!activeTable.isActive || activeTable.items.length === 0}
+                                        className="py-1.5 px-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-bold uppercase tracking-wider text-red-200 hover:text-white transition-all disabled:opacity-40 disabled:hover:bg-white/5 flex items-center justify-center gap-1"
+                                    >
+                                        <span>🔄</span>
+                                        <span>Transferir</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setIsReceiptOpen(true)}
+                                        disabled={!activeTable.isActive || activeTable.items.length === 0}
+                                        className="py-1.5 px-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-bold uppercase tracking-wider text-red-200 hover:text-white transition-all disabled:opacity-40 disabled:hover:bg-white/5 flex items-center justify-center gap-1"
+                                    >
+                                        <span>🧾</span>
+                                        <span>Pré-Conta</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setIsClearConfirmOpen(true)}
+                                        disabled={!activeTable.isActive && activeTable.items.length === 0}
+                                        className="py-1.5 px-2 rounded-xl bg-red-950/60 hover:bg-red-900/60 border border-red-500/20 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:text-red-200 transition-all disabled:opacity-40 flex items-center justify-center gap-1"
+                                    >
+                                        <span>🗑️</span>
+                                        <span>Liberar</span>
+                                    </button>
+                                </div>
+                            </header>
+
+                            {/* Comanda Items List */}
+                            <div className="flex-grow overflow-y-auto p-4 sm:p-6 space-y-2.5 custom-scrollbar">
+                                <div className="flex justify-between items-center mb-1 px-1">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-red-300/70">
+                                        Itens Lançados ({activeTable.items.reduce((s, i) => s + i.quantity, 0)})
+                                    </span>
+                                    <span className="text-[10px] font-mono text-gold/80">
+                                        Subtotal: R$ {tableSubtotal.toFixed(2)}
+                                    </span>
+                                </div>
+
+                                {activeTable.items.map(item => (
+                                    <div 
+                                        key={item.menuItemId} 
+                                        className="flex items-center justify-between bg-red-900/30 hover:bg-red-900/40 p-3.5 rounded-2xl border border-white/5 transition-all group"
+                                    >
+                                        <div className="flex-grow pr-3 min-w-0">
+                                            <div className="text-white font-bold text-sm truncate group-hover:text-gold transition-colors">
+                                                {item.name}
+                                            </div>
+                                            <div className="text-red-300/80 text-xs flex items-center gap-2 mt-0.5">
+                                                <span>R$ {item.price.toFixed(2)} un</span>
+                                                <span className="text-white/30">•</span>
+                                                <span className="text-gold font-bold font-mono">
+                                                    R$ {(item.price * item.quantity).toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Stepper Controls */}
+                                        <div className="flex items-center gap-2 bg-red-950/90 px-2 py-1.5 rounded-xl border border-white/10 flex-shrink-0 shadow-inner">
+                                            <button 
+                                                onClick={() => onUpdateQty(activeTable.id, item.menuItemId, -1)} 
+                                                className="w-6 h-6 rounded-lg bg-white/5 hover:bg-red-800/80 text-red-400 hover:text-white flex items-center justify-center font-bold text-sm transition-colors"
+                                                title="Diminuir"
+                                            >
+                                                -
+                                            </button>
+                                            <span className="text-xs font-black font-mono w-5 text-center text-white">
+                                                {item.quantity}
+                                            </span>
+                                            <button 
+                                                onClick={() => onUpdateQty(activeTable.id, item.menuItemId, 1)} 
+                                                className="w-6 h-6 rounded-lg bg-white/5 hover:bg-emerald-800/80 text-emerald-400 hover:text-white flex items-center justify-center font-bold text-sm transition-colors"
+                                                title="Aumentar"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {activeTable.items.length === 0 && (
+                                    <div className="py-12 text-center text-red-300/50 flex flex-col items-center">
+                                        <div className="text-4xl mb-2 opacity-50">📋</div>
+                                        <div className="text-sm font-bold text-white/80">Comanda Vazia</div>
+                                        <div className="text-xs text-red-300/60 max-w-xs mt-1">
+                                            Nenhum prato ou bebida foi lançado ainda nesta mesa.
+                                        </div>
+                                        <button
+                                            onClick={onOpenItemSelector}
+                                            className="mt-4 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-emerald-950"
+                                        >
+                                            + Lançar Primeiro Item
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Comanda Footer: Add Items, Bill Splitter & Total */}
+                            <footer className="p-5 border-t border-white/10 bg-red-950/90 backdrop-blur-md flex-shrink-0 space-y-3.5">
+                                
+                                {/* Quick Add Dishes Button */}
+                                <button 
+                                    onClick={onOpenItemSelector} 
+                                    className="w-full py-3 bg-gradient-to-r from-emerald-700 via-emerald-600 to-emerald-700 hover:from-emerald-600 hover:to-emerald-500 text-white font-bold rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                >
+                                    <span className="text-base font-black">+</span>
+                                    <span>Adicionar Pratos e Bebidas</span>
+                                </button>
+
+                                {/* Bill Splitter & Service Tip */}
+                                {activeTable.items.length > 0 && (
+                                    <div className="bg-red-900/30 p-3 rounded-2xl border border-white/5 space-y-2">
+                                        {/* Splitter Row */}
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-300/80">
+                                                Dividir Conta ({splitPeople} {splitPeople === 1 ? 'pessoa' : 'pessoas'})
+                                            </span>
+                                            <div className="flex items-center gap-1">
+                                                {[1, 2, 3, 4, 5, 6].map(num => (
+                                                    <button
+                                                        key={num}
+                                                        onClick={() => setSplitPeople(num)}
+                                                        className={`w-6 h-6 rounded-lg text-[10px] font-bold transition-all ${
+                                                            splitPeople === num
+                                                                ? 'bg-gold text-black shadow-sm'
+                                                                : 'bg-white/5 text-red-300 hover:bg-white/10'
+                                                        }`}
+                                                    >
+                                                        {num}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* 10% Service Tax Toggle */}
+                                        <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={includeService}
+                                                    onChange={e => setIncludeService(e.target.checked)}
+                                                    className="rounded border-white/20 text-gold focus:ring-0 bg-red-950 w-3.5 h-3.5"
+                                                />
+                                                <span className="text-[10px] text-red-200">Incluir 10% de serviço (+ R$ {serviceTax.toFixed(2)})</span>
+                                            </label>
+                                            {splitPeople > 1 && (
+                                                <span className="text-[11px] font-bold font-mono text-emerald-400">
+                                                    R$ {perPerson.toFixed(2)} / pessoa
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Total and Checkout Button */}
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-end px-1">
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase text-red-300/80 tracking-wider block">Total a Pagar</span>
+                                            {includeService && (
+                                                <span className="text-[9px] text-emerald-400 block font-mono">Com 10% de serviço</span>
+                                            )}
+                                        </div>
+                                        <span className="text-3xl font-black text-gold serif leading-none">
+                                            R$ {finalTotal.toFixed(2)}
+                                        </span>
+                                    </div>
+
+                                    <button 
+                                        onClick={() => onOpenPayment(activeTable)} 
+                                        disabled={activeTable.items.length === 0} 
+                                        className="w-full py-4 bg-gradient-to-r from-[#d4af37] via-[#f9e394] to-[#d4af37] text-black font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-amber-950/40 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:brightness-100 flex items-center justify-center gap-2"
+                                    >
+                                        <span>💳</span>
+                                        <span>Fechar Conta / Pagamento</span>
+                                    </button>
+                                </div>
+                            </footer>
+                        </>
+                    ) : (
+                        /* Empty State: No Table Selected */
+                        <div className="flex-grow flex flex-col items-center justify-center text-center p-8 text-red-300/50">
+                            <div className="w-20 h-20 rounded-full bg-red-900/20 border border-white/5 flex items-center justify-center text-4xl mb-4 shadow-inner">
+                                🍽️
+                            </div>
+                            <h3 className="text-xl font-bold serif text-white mb-1">Selecione uma Mesa</h3>
+                            <p className="text-xs text-red-300/70 max-w-xs mb-6">
+                                Toque em qualquer mesa do salão para abrir sua comanda, registrar novos pedidos ou finalizar a conta.
+                            </p>
+
+                            {/* Quick Shortcuts to Occupied Tables */}
+                            {metrics.occupied > 0 && (
+                                <div className="w-full max-w-xs bg-red-900/20 p-4 rounded-2xl border border-white/5">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-red-300/70 block mb-2.5">
+                                        Mesas Ativas com Consumo ({metrics.occupied})
+                                    </span>
+                                    <div className="flex flex-wrap gap-2 justify-center">
+                                        {tables.filter(t => t.isActive).map(t => (
+                                            <button
+                                                key={t.id}
+                                                onClick={() => onSelectTable(t.id)}
+                                                className="px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500/30 hover:border-gold text-white text-xs font-bold transition-all flex items-center gap-1.5"
+                                            >
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                                <span>Mesa {t.id}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Modal: Pré-Conta / Cupom de Conferência */}
+            {isReceiptOpen && activeTable && (
+                <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="absolute inset-0 bg-black/80" onClick={() => setIsReceiptOpen(false)}></div>
+                    <div className="relative bg-white text-zinc-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                        
+                        {/* Thermal Receipt Visual */}
+                        <div className="p-6 overflow-y-auto font-mono text-xs space-y-4">
+                            <div className="text-center space-y-1">
+                                <h2 className="text-xl font-bold tracking-wider font-serif">SERTÃO GOURMET</h2>
+                                <p className="text-[11px] text-zinc-600">Restaurante & Bar Nordestino</p>
+                                <p className="text-[10px] text-zinc-500">DOCUMENTO DE CONFERÊNCIA DE MESA</p>
+                                <p className="text-[9px] text-zinc-400">(NÃO É DOCUMENTO FISCAL)</p>
+                            </div>
+
+                            <div className="border-t border-b border-dashed border-zinc-400 py-2 space-y-1 text-[11px]">
+                                <div className="flex justify-between">
+                                    <span>MESA: {activeTable.id.toString().padStart(2, '0')}</span>
+                                    <span>{new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <div className="truncate">
+                                    <span>CLIENTE: {activeTable.customerName || 'NÃO INFORMADO'}</span>
+                                </div>
+                                {activeTable.openedAt && (
+                                    <div className="text-zinc-500 text-[10px]">
+                                        ABERTURA: {new Date(activeTable.openedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ({formatElapsed(activeTable.openedAt)})
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Itemized Table */}
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between font-bold text-[10px] text-zinc-500 border-b border-zinc-200 pb-1">
+                                    <span>ITEM / DESCRIÇÃO</span>
+                                    <span>TOTAL</span>
+                                </div>
+                                {activeTable.items.map((item, idx) => (
+                                    <div key={item.menuItemId} className="flex justify-between items-start text-[11px]">
+                                        <div className="pr-2">
+                                            <span>{item.quantity}x {item.name}</span>
+                                            <div className="text-[10px] text-zinc-500">R$ {item.price.toFixed(2)} un</div>
+                                        </div>
+                                        <span className="font-bold">R$ {(item.price * item.quantity).toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Financial Totals */}
+                            <div className="border-t border-dashed border-zinc-400 pt-3 space-y-1.5 text-xs">
+                                <div className="flex justify-between">
+                                    <span>SUBTOTAL DOS ITENS:</span>
+                                    <span>R$ {tableSubtotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-zinc-600">
+                                    <span>TAXA SERVIÇO (10% SUGERIDA):</span>
+                                    <span>R$ {serviceTax.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between font-black text-sm pt-1 border-t border-zinc-300">
+                                    <span>TOTAL GERAL (COM 10%):</span>
+                                    <span>R$ {(tableSubtotal + serviceTax).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between font-bold text-zinc-700">
+                                    <span>TOTAL SEM SERVIÇO:</span>
+                                    <span>R$ {tableSubtotal.toFixed(2)}</span>
+                                </div>
+
+                                {splitPeople > 1 && (
+                                    <div className="bg-zinc-100 p-2 rounded-lg mt-2 text-[11px]">
+                                        <div className="font-bold text-zinc-800">Sugestão de divisão ({splitPeople} pessoas):</div>
+                                        <div>Com serviço: R$ {((tableSubtotal + serviceTax) / splitPeople).toFixed(2)} por pessoa</div>
+                                        <div>Sem serviço: R$ {(tableSubtotal / splitPeople).toFixed(2)} por pessoa</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="text-center text-[10px] text-zinc-500 pt-3 border-t border-dashed border-zinc-300">
+                                Volte sempre ao Sertão Gourmet!
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="p-4 bg-zinc-100 border-t border-zinc-200 flex flex-col sm:flex-row gap-2">
+                            <button
+                                onClick={() => window.print()}
+                                className="flex-1 py-2.5 bg-zinc-900 hover:bg-black text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                            >
+                                <span>🖨️</span>
+                                <span>Imprimir</span>
+                            </button>
+                            <button
+                                onClick={handleCopyReceipt}
+                                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-zinc-900 font-bold rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                            >
+                                <span>📋</span>
+                                <span>{copiedNotification ? 'Copiado!' : 'Copiar Texto'}</span>
+                            </button>
+                            <button
+                                onClick={() => setIsReceiptOpen(false)}
+                                className="py-2.5 px-4 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold rounded-xl text-xs uppercase tracking-wider transition-all"
+                            >
+                                Fechar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Transferência de Mesa */}
+            {isTransferOpen && activeTable && (
+                <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="absolute inset-0 bg-black/80" onClick={() => setIsTransferOpen(false)}></div>
+                    <div className="relative bg-gradient-to-b from-red-900 via-red-950 to-red-950 border border-gold/30 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5">
+                        <div>
+                            <h3 className="text-2xl font-bold serif text-white">Transferir Mesa {activeTable.id}</h3>
+                            <p className="text-red-300 text-xs mt-1">
+                                Selecione a mesa de destino para mover ou juntar todos os itens consumidos.
+                            </p>
+                        </div>
+
+                        {/* Destination Tables Selector */}
+                        <div className="grid grid-cols-3 gap-2.5 max-h-60 overflow-y-auto p-1 custom-scrollbar">
+                            {tables.filter(t => t.id !== activeTable.id).map(t => (
+                                <button
+                                    key={t.id}
+                                    onClick={() => setTransferTargetId(t.id)}
+                                    className={`p-3 rounded-2xl border text-left transition-all ${
+                                        transferTargetId === t.id
+                                            ? 'bg-gold text-black border-gold shadow-md shadow-gold/30'
+                                            : t.isActive
+                                                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-gold'
+                                                : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                                    }`}
+                                >
+                                    <div className="font-bold text-sm">Mesa {t.id}</div>
+                                    <div className="text-[10px] mt-0.5 opacity-80">
+                                        {t.isActive ? 'Ocupada' : 'Livre'}
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+
+                        {transferTargetId && (
+                            <div className="bg-red-900/40 p-3 rounded-xl border border-white/10 text-xs text-red-200">
+                                {tables.find(t => t.id === transferTargetId)?.isActive ? (
+                                    <span>⚠️ A Mesa {transferTargetId} já possui itens. Os pedidos das duas mesas serão somados.</span>
+                                ) : (
+                                    <span>✅ A Mesa {transferTargetId} está livre e receberá todos os itens da Mesa {activeTable.id}.</span>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => setIsTransferOpen(false)}
+                                className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                disabled={!transferTargetId}
+                                onClick={() => {
+                                    if (transferTargetId && onTransferTable) {
+                                        onTransferTable(activeTable.id, transferTargetId);
+                                        setIsTransferOpen(false);
+                                        setTransferTargetId(null);
+                                    }
+                                }}
+                                className="flex-1 py-3 rounded-xl bg-gold hover:brightness-110 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-950/50 transition-all disabled:opacity-40"
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Confirmar Liberação / Limpeza da Mesa */}
+            {isClearConfirmOpen && activeTable && (
+                <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="absolute inset-0 bg-black/80" onClick={() => setIsClearConfirmOpen(false)}></div>
+                    <div className="relative bg-gradient-to-b from-red-900 via-red-950 to-red-950 border border-red-500/30 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4">
+                        <div className="text-center">
+                            <div className="w-12 h-12 rounded-full bg-red-600/20 text-red-400 mx-auto flex items-center justify-center text-2xl mb-3">
+                                ⚠️
+                            </div>
+                            <h3 className="text-xl font-bold serif text-white">Liberar Mesa {activeTable.id}?</h3>
+                            <p className="text-red-300 text-xs mt-2">
+                                Esta ação irá zerar a comanda e disponibilizar a mesa novamente sem registrar venda no caixa.
+                            </p>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => setIsClearConfirmOpen(false)}
+                                className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider transition-colors"
+                            >
+                                Voltar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (onClearTable) {
+                                        onClearTable(activeTable.id);
+                                    }
+                                    setIsClearConfirmOpen(false);
+                                }}
+                                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-950 transition-colors"
+                            >
+                                Sim, Liberar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -2436,6 +3327,54 @@ function MainApp() {
        handleUpdateTable({ ...table, isActive: false, items: [], customerName: undefined, openedAt: undefined });
        setPaymentTable(null);
   };
+
+  const handleTransferTable = async (fromTableId: number, toTableId: number) => {
+    const fromTable = tables.find(t => t.id === fromTableId);
+    const toTable = tables.find(t => t.id === toTableId);
+    if (!fromTable || !toTable) return;
+
+    const mergedItems = [...toTable.items];
+    for (const fItem of fromTable.items) {
+      const idx = mergedItems.findIndex(i => i.menuItemId === fItem.menuItemId);
+      if (idx >= 0) {
+        mergedItems[idx].quantity += fItem.quantity;
+      } else {
+        mergedItems.push({ ...fItem });
+      }
+    }
+
+    const updatedToTable: Table = {
+      ...toTable,
+      isActive: true,
+      customerName: toTable.customerName || fromTable.customerName || `Mesa ${toTableId}`,
+      openedAt: toTable.openedAt || fromTable.openedAt || Date.now(),
+      items: mergedItems
+    };
+
+    const updatedFromTable: Table = {
+      ...fromTable,
+      isActive: false,
+      customerName: undefined,
+      openedAt: undefined,
+      items: []
+    };
+
+    await handleUpdateTable(updatedToTable);
+    await handleUpdateTable(updatedFromTable);
+    setActiveTableId(toTableId);
+  };
+
+  const handleClearTable = async (tableId: number) => {
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
+    await handleUpdateTable({
+      ...table,
+      isActive: false,
+      customerName: undefined,
+      openedAt: undefined,
+      items: []
+    });
+  };
   
   // Admin Handlers
   const handleUpdateItem = async (item: MenuItem) => {
@@ -2517,6 +3456,8 @@ function MainApp() {
                 onOpenItemSelector={() => setIsItemSelectorOpen(true)}
                 onOpenPayment={setPaymentTable}
                 onUpdateQty={handleUpdateTableItem}
+                onTransferTable={handleTransferTable}
+                onClearTable={handleClearTable}
              />
           )}
 
@@ -2592,6 +3533,7 @@ function MainApp() {
        {isItemSelectorOpen && activeTableId && (
           <ItemSelectorModal 
              items={items}
+             categories={categories}
              onAddItem={(item) => handleAddItemToTable(activeTableId, item)}
              onClose={() => setIsItemSelectorOpen(false)}
           />
