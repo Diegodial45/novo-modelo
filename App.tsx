@@ -92,6 +92,8 @@ interface DigitalComandaProps {
     onUpdateQty: (tableId: number, itemId: string, delta: number) => void;
     onTransferTable?: (fromTableId: number, toTableId: number) => void;
     onClearTable?: (tableId: number) => void;
+    onAddTable?: (customId?: number) => Promise<void> | void;
+    onDeleteTable?: (tableId: number) => Promise<void> | void;
 }
 
 interface MenuViewProps {
@@ -1157,7 +1159,9 @@ const DigitalComanda = ({
     onOpenPayment, 
     onUpdateQty,
     onTransferTable,
-    onClearTable 
+    onClearTable,
+    onAddTable,
+    onDeleteTable
 }: DigitalComandaProps) => {
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'FREE'>('ALL');
@@ -1171,6 +1175,46 @@ const DigitalComanda = ({
     const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
     const [transferTargetId, setTransferTargetId] = useState<number | null>(null);
     const [copiedNotification, setCopiedNotification] = useState(false);
+
+    // Modal state for adding and deleting tables
+    const [isAddTableOpen, setIsAddTableOpen] = useState(false);
+    const [newTableNumberInput, setNewTableNumberInput] = useState<string>("");
+    const [tableAddError, setTableAddError] = useState<string>("");
+    const [isSubmittingTable, setIsSubmittingTable] = useState(false);
+    const [isDeleteTableConfirmOpen, setIsDeleteTableConfirmOpen] = useState(false);
+
+    // Suggested next table number based on current maximum
+    const nextSuggestedId = useMemo(() => {
+        const existingIds = tables.map(t => t.id);
+        return existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
+    }, [tables]);
+
+    const handleOpenAddTable = () => {
+        setNewTableNumberInput(nextSuggestedId.toString());
+        setTableAddError("");
+        setIsAddTableOpen(true);
+    };
+
+    const handleConfirmAddTable = async () => {
+        const num = parseInt(newTableNumberInput.trim(), 10);
+        if (isNaN(num) || num <= 0) {
+            setTableAddError("Digite um número de mesa válido maior que zero.");
+            return;
+        }
+        if (tables.some(t => t.id === num)) {
+            setTableAddError(`A Mesa ${num} já existe no salão.`);
+            return;
+        }
+        if (onAddTable) {
+            setIsSubmittingTable(true);
+            try {
+                await onAddTable(num);
+                setIsAddTableOpen(false);
+            } finally {
+                setIsSubmittingTable(false);
+            }
+        }
+    };
 
     // Keep elapsed time updated every 30 seconds
     useEffect(() => {
@@ -1363,29 +1407,41 @@ const DigitalComanda = ({
                         </button>
                     </div>
 
-                    {/* Search Input */}
-                    <div className="relative w-full sm:w-80">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40 text-sm">🔍</span>
-                        <input
-                            type="text"
-                            placeholder="Buscar mesa, cliente ou prato..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full bg-red-950/80 border border-white/10 focus:border-gold rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white placeholder-white/40 outline-none transition-all shadow-inner"
-                        />
-                        {searchQuery && (
-                            <button
-                                onClick={() => setSearchQuery("")}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs"
-                            >
-                                ✕
-                            </button>
-                        )}
+                    {/* Search Input & Add Table Action */}
+                    <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
+                        <div className="relative w-full sm:w-72">
+                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40 text-sm">🔍</span>
+                            <input
+                                type="text"
+                                placeholder="Buscar mesa, cliente ou prato..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full bg-red-950/80 border border-white/10 focus:border-gold rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white placeholder-white/40 outline-none transition-all shadow-inner"
+                            />
+                            {searchQuery && (
+                                <button
+                                    onClick={() => setSearchQuery("")}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Add Table Button */}
+                        <button
+                            onClick={handleOpenAddTable}
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-2xl bg-gradient-to-r from-gold via-amber-400 to-amber-500 hover:brightness-110 active:scale-95 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-950/40 transition-all cursor-pointer whitespace-nowrap"
+                            title="Adicionar nova mesa ao salão"
+                        >
+                            <span className="text-base font-bold leading-none">+</span>
+                            <span>Nova Mesa</span>
+                        </button>
                     </div>
 
                     {/* Quick Selected Indicator */}
                     {activeTable && (
-                        <div className="hidden lg:flex items-center gap-2 bg-gold/10 border border-gold/30 px-3 py-1.5 rounded-xl">
+                        <div className="hidden xl:flex items-center gap-2 bg-gold/10 border border-gold/30 px-3 py-1.5 rounded-xl">
                             <span className="text-xs text-gold font-bold">Mesa {activeTable.id.toString().padStart(2, '0')} ativa</span>
                             <button 
                                 onClick={() => onSelectTable(0)} 
@@ -1523,6 +1579,20 @@ const DigitalComanda = ({
                                     </div>
                                 );
                             })}
+
+                            {/* Add Table Quick Card in Grid */}
+                            <button
+                                onClick={handleOpenAddTable}
+                                className="min-h-[170px] rounded-3xl border-2 border-dashed border-gold/30 hover:border-gold bg-gold/5 hover:bg-gold/10 p-5 flex flex-col items-center justify-center text-center transition-all group hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+                            >
+                                <div className="w-12 h-12 rounded-2xl bg-gold/10 group-hover:bg-gold/20 border border-gold/30 flex items-center justify-center text-2xl text-gold mb-3 transition-transform group-hover:rotate-90">
+                                    +
+                                </div>
+                                <span className="font-bold text-sm text-gold block">Adicionar Mesa</span>
+                                <span className="text-[11px] text-red-200/60 mt-1">
+                                    Mesa {nextSuggestedId} ou personalizada
+                                </span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -1547,6 +1617,16 @@ const DigitalComanda = ({
                                                 <span className="text-[10px] font-bold uppercase bg-white/10 text-zinc-300 px-2 py-0.5 rounded-full">
                                                     Sem Consumo
                                                 </span>
+                                            )}
+                                            {!activeTable.isActive && activeTable.items.length === 0 && onDeleteTable && (
+                                                <button
+                                                    onClick={() => setIsDeleteTableConfirmOpen(true)}
+                                                    className="text-[10px] font-bold uppercase text-red-400 hover:text-white bg-red-950/60 hover:bg-red-900 border border-red-500/30 px-2 py-0.5 rounded-full transition-colors flex items-center gap-1 cursor-pointer"
+                                                    title="Excluir mesa vazia do salão"
+                                                >
+                                                    <span>🗑️</span>
+                                                    <span>Excluir</span>
+                                                </button>
                                             )}
                                         </div>
                                         
@@ -2001,6 +2081,148 @@ const DigitalComanda = ({
                                 className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-950 transition-colors"
                             >
                                 Sim, Liberar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Adicionar Nova Mesa */}
+            {isAddTableOpen && (
+                <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="absolute inset-0 bg-black/80" onClick={() => setIsAddTableOpen(false)}></div>
+                    <div className="relative bg-gradient-to-b from-[#2e0909] via-[#1f0505] to-[#160202] border border-gold/30 text-white w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5">
+                        <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center text-2xl text-gold">
+                                    🪑
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold serif text-white">Adicionar Mesa</h3>
+                                    <p className="text-xs text-red-200/70">Expanda a capacidade de atendimento do salão</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsAddTableOpen(false)}
+                                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center text-sm transition-colors cursor-pointer"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Quick Suggestion Box */}
+                        <div className="bg-red-950/70 p-4 rounded-2xl border border-white/10 space-y-2">
+                            <div className="text-[11px] text-red-300 font-semibold flex items-center justify-between">
+                                <span>Sugestão sequencial automática:</span>
+                                <span className="text-gold font-bold">Mesa {nextSuggestedId}</span>
+                            </div>
+                            <p className="text-[11px] text-white/60">
+                                O sistema identificou que a próxima numeração livre recomendada é a mesa <b>{nextSuggestedId}</b>.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setNewTableNumberInput(nextSuggestedId.toString());
+                                    setTableAddError("");
+                                }}
+                                className="w-full py-2 px-3 rounded-xl bg-gold/10 hover:bg-gold/20 border border-gold/30 text-gold text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                                <span>⚡ Usar Mesa {nextSuggestedId}</span>
+                            </button>
+                        </div>
+
+                        {/* Form Input */}
+                        <form onSubmit={(e) => { e.preventDefault(); handleConfirmAddTable(); }} className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-red-200 uppercase tracking-wider block mb-1.5">
+                                    Número da Mesa
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-sm font-bold">
+                                        Mesa #
+                                    </span>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="999"
+                                        value={newTableNumberInput}
+                                        onChange={(e) => {
+                                            setNewTableNumberInput(e.target.value);
+                                            setTableAddError("");
+                                        }}
+                                        placeholder="Ex: 11"
+                                        autoFocus
+                                        className="w-full bg-black/40 border border-white/20 focus:border-gold rounded-2xl pl-20 pr-4 py-3 text-lg font-mono text-white placeholder-white/30 outline-none transition-all shadow-inner"
+                                    />
+                                </div>
+                                {tableAddError && (
+                                    <p className="text-xs text-red-400 font-medium mt-1.5 flex items-center gap-1">
+                                        <span>⚠️</span>
+                                        <span>{tableAddError}</span>
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAddTableOpen(false)}
+                                    className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSubmittingTable}
+                                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-gold via-amber-400 to-amber-500 hover:brightness-110 active:scale-95 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-950/40 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                >
+                                    {isSubmittingTable ? (
+                                        <span>Criando...</span>
+                                    ) : (
+                                        <>
+                                            <span className="text-sm font-bold">+</span>
+                                            <span>Adicionar Mesa</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Confirmar Remoção da Mesa Vazia */}
+            {isDeleteTableConfirmOpen && activeTable && (
+                <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="absolute inset-0 bg-black/80" onClick={() => setIsDeleteTableConfirmOpen(false)}></div>
+                    <div className="relative bg-gradient-to-b from-red-900 via-red-950 to-red-950 border border-red-500/30 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4">
+                        <div className="text-center">
+                            <div className="w-12 h-12 rounded-full bg-red-600/20 text-red-400 mx-auto flex items-center justify-center text-2xl mb-3">
+                                🗑️
+                            </div>
+                            <h3 className="text-xl font-bold serif text-white">Remover Mesa {activeTable.id}?</h3>
+                            <p className="text-red-300 text-xs mt-2">
+                                Esta mesa está vazia e sem consumo. Ao confirmar, ela será removida do salão.
+                            </p>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => setIsDeleteTableConfirmOpen(false)}
+                                className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    if (onDeleteTable) {
+                                        await onDeleteTable(activeTable.id);
+                                    }
+                                    setIsDeleteTableConfirmOpen(false);
+                                }}
+                                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-950 transition-colors cursor-pointer"
+                            >
+                                Sim, Remover
                             </button>
                         </div>
                     </div>
@@ -3375,6 +3597,46 @@ function MainApp() {
       items: []
     });
   };
+
+  const handleAddTable = async (customId?: number) => {
+    let newId: number;
+    if (customId && customId > 0) {
+      if (tables.some(t => t.id === customId)) {
+        return;
+      }
+      newId = customId;
+    } else {
+      const existingIds = tables.map(t => t.id);
+      const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+      newId = maxId + 1;
+    }
+
+    const newTable: Table = {
+      id: newId,
+      isActive: false,
+      items: []
+    };
+
+    await dbService.addTable(newTable);
+    setTables(prev => {
+      const updated = [...prev.filter(t => t.id !== newId), newTable];
+      return updated.sort((a, b) => a.id - b.id);
+    });
+    setActiveTableId(newId);
+  };
+
+  const handleDeleteTable = async (tableId: number) => {
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
+    if (table.isActive || (table.items && table.items.length > 0)) {
+      return;
+    }
+    await dbService.deleteTable(tableId);
+    setTables(prev => prev.filter(t => t.id !== tableId));
+    if (activeTableId === tableId) {
+      setActiveTableId(null);
+    }
+  };
   
   // Admin Handlers
   const handleUpdateItem = async (item: MenuItem) => {
@@ -3458,6 +3720,8 @@ function MainApp() {
                 onUpdateQty={handleUpdateTableItem}
                 onTransferTable={handleTransferTable}
                 onClearTable={handleClearTable}
+                onAddTable={handleAddTable}
+                onDeleteTable={handleDeleteTable}
              />
           )}
 

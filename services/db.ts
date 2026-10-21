@@ -663,6 +663,42 @@ export const dbService = {
   },
 
   // --- Mesas (Tempo Real / Persistência) ---
+  async addTable(table: Table) {
+    const local = getLocalData();
+    const idx = local.tables.findIndex(t => t.id === table.id);
+    if (idx >= 0) {
+      local.tables[idx] = table;
+    } else {
+      local.tables.push(table);
+      local.tables.sort((a, b) => a.id - b.id);
+    }
+    saveLocalData({ tables: local.tables });
+
+    try {
+      await supabase.from('tables').upsert({
+        id: table.id,
+        is_active: table.isActive,
+        items: table.items,
+        opened_at: table.openedAt,
+        customer_name: table.customerName
+      });
+    } catch (e) {
+      console.warn('Erro ao adicionar mesa no Supabase:', e);
+    }
+  },
+
+  async deleteTable(tableId: number) {
+    const local = getLocalData();
+    local.tables = local.tables.filter(t => t.id !== tableId);
+    saveLocalData({ tables: local.tables });
+
+    try {
+      await supabase.from('tables').delete().eq('id', tableId);
+    } catch (e) {
+      console.warn('Erro ao deletar mesa no Supabase:', e);
+    }
+  },
+
   async updateTable(table: Table) {
     const local = getLocalData();
     const idx = local.tables.findIndex(t => t.id === table.id);
